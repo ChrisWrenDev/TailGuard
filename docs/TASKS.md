@@ -180,7 +180,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 19.
 
 ### TASK-020 — Evaluator OCI sandbox
-**Status:** pending  
+**Status:** completed  
 **Description:** Build evaluator image/runner with no network, read-only mounts, dropped capabilities and resource limits.  
 **Requirements:** FR-006, FR-008, FR-010.  
 **Dependencies:** TASK-019.  
