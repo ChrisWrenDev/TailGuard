@@ -115,7 +115,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 12.
 
 ### TASK-013 — Metrics and immutable baselines
-**Status:** pending  
+**Status:** completed  
 **Description:** CAGR, max drawdown, premium spend, drawdown reduction, tail-efficiency primitives; no-hedge, lower-equity/cash, fixed-put baselines.  
 **Requirements:** FR-005, FR-020.  
 **Dependencies:** TASK-010–TASK-012.  
