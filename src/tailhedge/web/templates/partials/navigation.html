@@ -19,6 +19,12 @@
             </a>
         </li>
         <li class="navigation__item">
+            <a href="/research/backtest" class="navigation__link {% if active_page == 'research' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'research' %}page{% else %}false{% endif %}">
+                Backtest Results
+            </a>
+        </li>
+        <li class="navigation__item">
             <a href="/operations/daily-runs" class="navigation__link {% if active_page == 'operations' %}navigation__link--active{% endif %}"
                aria-current="{% if active_page == 'operations' %}page{% else %}false{% endif %}">
                 Operations

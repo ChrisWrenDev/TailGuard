@@ -23,7 +23,10 @@ config = context.config
 # Override sqlalchemy.url from environment secrets
 try:
     secrets = Secrets()
-    config.set_main_option("sqlalchemy.url", secrets.database_url.get_secret_value())
+    url = secrets.database_url.get_secret_value()
+    # Escape ConfigParser interpolation so URLs containing '%' (e.g. an
+    # encoded unix-socket path or password character) survive the round-trip.
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
 except Exception:
     pass  # fall back to alembic.ini default for `alembic init`
 

@@ -135,15 +135,16 @@ class TestHoldingExposure:
         assert exposure.is_mapped is False
         assert exposure.warning is None
 
-    def test_zero_value_non_eligible_no_warning(self) -> None:
-        """Zero-value non-eligible holding should not warn."""
+    def test_zero_value_non_eligible_still_warns(self) -> None:
+        """Non-eligible non-cash holdings warn regardless of value (even 0)."""
         holding = _make_holding(
             asset_class="EQUITY",
             hedge_eligible=False,
         )
         exposure = calculate_holding_exposure(holding, market_value=0.0)
 
-        assert exposure.warning is None
+        assert exposure.warning is not None
+        assert "not hedge-eligible" in exposure.warning
 
 
 class TestPortfolioExposure:
@@ -527,3 +528,109 @@ class TestPortfolioExposureEdgeCases:
 
         assert result.portfolio_name == "My Portfolio"
         assert result.base_currency == "GBP"
+
+
+# ---------------------------------------------------------------------------
+# Currency rule (INV-010) and FX conversion
+# ---------------------------------------------------------------------------
+
+
+class TestCurrencyRule:
+    """Currencies are never mixed without explicit FX input."""
+
+    def test_single_currency_matches_base_ok(self) -> None:
+        portfolio = _make_portfolio(base_currency="USD")
+        holdings = [(_make_holding(currency="USD"), 50_000.0)]
+        result = calculate_portfolio_exposure(portfolio, holdings)
+        assert result.total_value == pytest.approx(50_000.0)
+
+    def test_mixed_currencies_without_fx_raises(self) -> None:
+        portfolio = _make_portfolio(base_currency="USD")
+        holdings = [
+            (_make_holding(instrument_key="A", currency="USD"), 50_000.0),
+            (_make_holding(instrument_key="B", currency="GBP"), 30_000.0),
+        ]
+        with pytest.raises(ValueError, match="INV-010"):
+            calculate_portfolio_exposure(portfolio, holdings)
+
+    def test_foreign_currency_without_fx_raises(self) -> None:
+        portfolio = _make_portfolio(base_currency="GBP")
+        holdings = [(_make_holding(currency="USD"), 50_000.0)]
+        with pytest.raises(ValueError, match="fx_to_base"):
+            calculate_portfolio_exposure(portfolio, holdings)
+
+    def test_missing_rate_for_present_currency_raises(self) -> None:
+        portfolio = _make_portfolio(base_currency="USD")
+        holdings = [
+            (_make_holding(instrument_key="A", currency="USD"), 50_000.0),
+            (_make_holding(instrument_key="B", currency="GBP"), 30_000.0),
+            (_make_holding(instrument_key="C", currency="JPY"), 10_000.0),
+        ]
+        with pytest.raises(ValueError, match="JPY"):
+            calculate_portfolio_exposure(portfolio, holdings, fx_to_base={"GBP": 1.27})
+
+    def test_fx_conversion_applied(self) -> None:
+        """Foreign values convert to base with the explicit rate."""
+        portfolio = _make_portfolio(base_currency="GBP")
+        holdings = [
+            (
+                _make_holding(instrument_key="A", currency="GBP", hedge_beta=1.0),
+                10_000.0,
+            ),
+            (
+                _make_holding(instrument_key="B", currency="USD", hedge_beta=1.0),
+                12_700.0,
+            ),
+        ]
+        result = calculate_portfolio_exposure(
+            portfolio,
+            holdings,
+            fx_to_base={"USD": 1 / 1.27},  # 1 USD = 1/1.27 GBP
+        )
+        assert result.total_value == pytest.approx(10_000.0 + 10_000.0)
+
+    def test_fx_benchmark_equivalent_converted(self) -> None:
+        """Benchmark equivalents convert with the same FX input."""
+        from tailhedge.data.fixtures import (
+            GF006_EXPECTED_PREMIUM_GBP,
+            GF006_FX_RATE,
+            GF006_PREMIUM_USD,
+        )
+
+        portfolio = _make_portfolio(base_currency="GBP")
+        holding = _make_holding(instrument_key="OPT", currency="USD", hedge_beta=1.0)
+        # USD option exposure of 10,250 USD, GBP base with rate 1.27 USD/GBP
+        result = calculate_portfolio_exposure(
+            portfolio,
+            [(holding, GF006_PREMIUM_USD)],
+            fx_to_base={"USD": 1 / GF006_FX_RATE},
+        )
+        assert result.total_value == pytest.approx(GF006_EXPECTED_PREMIUM_GBP)
+        assert result.total_benchmark_equivalent == pytest.approx(
+            GF006_EXPECTED_PREMIUM_GBP
+        )
+
+
+class TestWeightedBetaSemantics:
+    """Weighted average beta is weighted over mapped eligible value only."""
+
+    def test_unmapped_eligible_does_not_dilute_beta(self) -> None:
+        portfolio = _make_portfolio()
+        holdings = [
+            (_make_holding(instrument_key="A", hedge_beta=1.2), 50_000.0),
+            (
+                _make_holding(
+                    instrument_key="B",
+                    hedge_eligible=True,
+                    hedge_benchmark=None,
+                    hedge_beta=None,
+                ),
+                50_000.0,
+            ),
+        ]
+        result = calculate_portfolio_exposure(portfolio, holdings)
+        # Beta is 1.2 (mapped value only), not diluted to 0.6
+        assert result.weighted_average_beta == pytest.approx(1.2)
+        # Unmapped holding is still surfaced
+        assert len(result.warnings) == 1
+        assert result.mapping_coverage == pytest.approx(0.5)

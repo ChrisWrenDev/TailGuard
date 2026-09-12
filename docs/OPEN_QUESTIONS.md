@@ -102,3 +102,8 @@ The coding agent should proceed with the documented defaults. Some external choi
 **Why it matters:** where assets/options can legally/tax-efficiently sit and how gains are treated.  
 **Affects:** owner’s account setup, not core software calculations unless tax modelling is later added.  
 **Recommended default:** software remains tax-agnostic; owner obtains appropriate professional guidance. Do not implement tax advice/automation in MVP.
+
+### OQ-020 — Backtest budget-cap semantics for the mechanical baseline
+**Why it matters:** the fixed-put (PPUT-like) baseline enforces a budget; whether the cap applies to gross premium entries or *net* option outlay (buys minus sale/settlement proceeds) changes how often rolls are permitted.  
+**Affects:** TASK-013 backtest baseline, FR-016 risk-gate configuration later.  
+**Recommended default:** net option outlay per rolling year (buys − sale/settlement proceeds) against `budget_pct × portfolio value`, as implemented in `FixedPutPolicy`; rolls that would breach the allowance are skipped and the position rides to expiry. The live risk gate (TASK-032) may choose a stricter reading.

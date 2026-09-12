@@ -422,7 +422,7 @@ class TestLogoutButton:
 
 
 class TestBacktestPage:
-    """Tests for the backtest results page."""
+    """Tests for the backtest results page (TASK-014)."""
 
     def test_backtest_page_renders(self) -> None:
         auth = _auth_client()
@@ -430,25 +430,54 @@ class TestBacktestPage:
         assert resp.status_code == 200
         assert "Backtest Results" in resp.text
 
-    def test_backtest_page_has_metrics_table(self) -> None:
+    def test_backtest_page_empty_state_before_run(self) -> None:
         auth = _auth_client()
         resp = auth.get("/research/backtest")
         assert resp.status_code == 200
-        assert "Key Metrics" in resp.text
-        assert "CAGR" in resp.text
-        assert "Max Drawdown" in resp.text
-        assert "Premium Spend" in resp.text
+        assert "No backtest results yet" in resp.text
+        assert "Run synthetic backtest" in resp.text
 
-    def test_backtest_page_has_baseline_comparison(self) -> None:
+    def test_backtest_page_has_run_form_with_csrf(self) -> None:
         auth = _auth_client()
         resp = auth.get("/research/backtest")
         assert resp.status_code == 200
+        assert 'action="/research/backtest/run"' in resp.text
+        assert 'name="csrf_token"' in resp.text
+
+    def test_run_requires_csrf(self) -> None:
+        auth = _auth_client()
+        resp = auth.post("/research/backtest/run", data={})
+        assert resp.status_code == 403
+
+    def test_run_renders_real_results(self) -> None:
+        """Running the synthetic backtest renders actual computed values."""
+        from tailhedge.research.synthetic_backtest import run_synthetic_backtest
+
+        auth = _auth_client()
+        session_cookie = auth.cookies.get(_SESSION_COOKIE)
+        assert session_cookie is not None
+        session_id = session_cookie.split(":")[0]
+        token = generate_csrf_token(session_id)
+        resp = auth.post("/research/backtest/run", data={"csrf_token": token})
+        assert resp.status_code == 200
+
+        expected = run_synthetic_backtest()
+        # The hedged CAGR actually appears in the table (no chart hover)
+        assert f"{expected.hedged.metrics.cagr * 100:.2f}%" in resp.text
         assert "Baseline Comparison" in resp.text
+        assert "No Hedge" in resp.text
+        assert "Fixed Put Hedge (PPUT-like)" in resp.text
+        # No em-dash placeholders in the results table
+        assert 'data-testid="hedged-cagr"' in resp.text
 
     def test_backtest_page_requires_auth(self) -> None:
         resp = _unauth_client().get("/research/backtest")
         assert resp.status_code == 303
         assert resp.headers["location"] == "/auth/login"
+
+    def test_run_requires_auth(self) -> None:
+        resp = _unauth_client().post("/research/backtest/run", data={})
+        assert resp.status_code == 303
 
 
 # ---------------------------------------------------------------------------
@@ -470,8 +499,8 @@ class TestBacktestAPI:
         data = resp.json()
         assert data["status"] == "success"
         assert "hedged" in data
-        assert "unhedged" in data
-        assert "comparison" in data
+        assert "baselines" in data
+        assert "dataset" in data
 
     def test_synthetic_backtest_api_has_metrics(self) -> None:
         auth = _auth_client()
@@ -481,5 +510,8 @@ class TestBacktestAPI:
         assert "cagr" in data["hedged"]
         assert "max_drawdown" in data["hedged"]
         assert "total_premium_spent" in data["hedged"]
-        assert "cagr_delta" in data["comparison"]
-        assert "drawdown_improvement" in data["comparison"]
+        assert len(data["baselines"]) == 3
+        first = data["baselines"][0]
+        assert "cagr_delta" in first
+        assert "drawdown_improvement" in first
+        assert "fold_utility" in first

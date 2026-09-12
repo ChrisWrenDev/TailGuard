@@ -167,3 +167,22 @@
 **Alternatives:** No default cap; fixed currency amount.  
 **Reasoning:** Percentage scales with portfolio and matches the project’s “controlled annual insurance spend” framing.  
 **Consequences:** It is a software safety default, explicitly not an investment recommendation.
+
+## ADR-025 — Historical fill fraction applies to the full quoted spread
+**Context:** The implementation initially applied the spread fraction to the half-spread (mid + 12.5% of spread for the documented "25%" case), contradicting TECHNICAL_ARCHITECTURE.md §9 and FR-017 ("midpoint + 25% of spread") and making the 50% stress case equal to the documented live base case.  
+**Chosen approach:** Align code to the documented convention: a spread fraction applies to the full ask-bid spread (base buy fill = mid + 0.25 × (ask − bid)); tick-rounded fills are clamped inside the quoted band so a buy never exceeds the ask (FR-017 cap). Golden-fixture expected ledgers use this same frozen fill profile.  
+**Alternatives:** Keep the half-spread reading and document the backtest as more optimistic than live — rejected: backtests must not flatter live behaviour.  
+**Reasoning:** Backtest base fills must be at least as conservative as the live limit-pricing convention, and the robustness ladder (midpoint/25%/50%/100%) must actually be worse than the base case.  
+**Consequences:** Backtest results are slightly more conservative than the earlier implementation; all fixture hand calculations were recomputed accordingly.
+
+## ADR-026 — Backtest ledger fails closed on malformed or infeasible input
+**Context:** The accounting ledger previously accepted non-positive quantities (a negative-quantity buy was structurally identical to sell-to-open), negative prices/premiums, purchases beyond available cash (silent borrowing), and post-expiry settlement priced at a later underlying value.  
+**Chosen approach:** The ledger validates quantity > 0, premium/price ≥ 0, cash sufficiency for purchases/reinvestments/costs, and settlement exactly on the expiry date; positions whose expiry was missed raise instead of being priced with current data. Units bought via reinvestment are tracked and independently conserved. Property-based tests recompute final cash independently of ledger internals.  
+**Alternatives:** Leave validation to a higher engine layer — rejected: the ledger is the last line of defence for the "no sell-to-open / no borrowing" invariants.  
+**Consequences:** Some flexible-but-unsafe usages now raise; the engine and strategy layers pass fill-model prices and charge commissions explicitly.
+
+## ADR-027 — Portfolio exposure refuses mixed currencies without explicit FX input
+**Context:** Exposure summation silently combined market values in different currencies, violating INV-010 ("never mix currencies without explicit FX input").  
+**Chosen approach:** `calculate_portfolio_exposure` requires an `fx_to_base` mapping whenever any holding's currency differs from the portfolio base currency; missing rates for present currencies raise. Weighted average beta is weighted over *mapped* eligible value only so eligible-but-unmapped holdings cannot dilute it (they remain surfaced as warnings).  
+**Reasoning:** Fail closed on ambiguous financial state; unmapped exposure must be visible, not absorbed into averages.  
+**Consequences:** Callers with multi-currency books must supply explicit FX rates (GF-006-style input).

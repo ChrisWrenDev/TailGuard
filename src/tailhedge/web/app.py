@@ -352,10 +352,44 @@ async def settings_notifications(
 @app.get("/research/backtest", response_class=HTMLResponse)
 async def research_backtest(
     request: Request,
-    _session_id: Annotated[str, Depends(require_auth)],
+    session_id: Annotated[str, Depends(require_auth)],
 ) -> HTMLResponse:
+    """Empty-state backtest page; results appear after an explicit run."""
     return templates.TemplateResponse(
-        request, "research-backtest.html", _page_context(request, "research")
+        request,
+        "research-backtest.html",
+        _page_context(
+            request,
+            "research",
+            result=None,
+            csrf_token=generate_csrf_token(session_id),
+        ),
+    )
+
+
+@app.post("/research/backtest/run", response_class=HTMLResponse)
+async def research_backtest_run(
+    request: Request,
+    session_id: Annotated[str, Depends(require_csrf)],
+) -> HTMLResponse:
+    """Run the deterministic synthetic backtest and render real results."""
+    from tailhedge.research.synthetic_backtest import run_synthetic_backtest
+
+    result = run_synthetic_backtest()
+    logger.info(
+        "Synthetic backtest run by session %s: hedged CAGR %.4f",
+        session_id[:8],
+        result.hedged.metrics.cagr,
+    )
+    return templates.TemplateResponse(
+        request,
+        "research-backtest.html",
+        _page_context(
+            request,
+            "research",
+            result=result,
+            csrf_token=generate_csrf_token(session_id),
+        ),
     )
 
 
@@ -375,38 +409,10 @@ async def api_status(
 async def api_backtest_synthetic(
     _session_id: Annotated[str, Depends(require_auth)],
 ) -> dict[str, object]:
-    """Return synthetic backtest results for demonstration."""
-    return {
-        "status": "success",
-        "hedged": {
-            "cagr": 0.085,
-            "max_drawdown": -0.12,
-            "max_drawdown_duration_days": 45,
-            "total_premium_spent": 15000.0,
-            "annualised_premium_spent": 1500.0,
-            "premium_spend_ratio": 0.015,
-            "final_value": 185000.0,
-            "initial_value": 100000.0,
-            "total_return": 0.85,
-        },
-        "unhedged": {
-            "cagr": 0.072,
-            "max_drawdown": -0.28,
-            "max_drawdown_duration_days": 120,
-            "total_premium_spent": 0.0,
-            "annualised_premium_spent": 0.0,
-            "premium_spend_ratio": 0.0,
-            "final_value": 172000.0,
-            "initial_value": 100000.0,
-            "total_return": 0.72,
-        },
-        "comparison": {
-            "cagr_delta": 0.013,
-            "drawdown_improvement": 0.16,
-            "fold_utility": 0.053,
-            "tail_efficiency": 0.000107,
-        },
-    }
+    """Return the deterministic synthetic backtest, computed by the shared engine."""
+    from tailhedge.research.synthetic_backtest import run_synthetic_backtest
+
+    return run_synthetic_backtest().to_api_dict()
 
 
 @app.post("/api/v1/example")

@@ -1,7 +1,9 @@
 # Licensed data — never commit user-owned market data
 data/
-# Exception: source code data module
+# Exception: source code data module (synthetic fixture code lives here)
 !src/tailhedge/data/
+# Exception: non-licensed synthetic Parquet fixtures under the source module
+!src/tailhedge/data/**/*.parquet
 
 # Secrets and environment files
 .env

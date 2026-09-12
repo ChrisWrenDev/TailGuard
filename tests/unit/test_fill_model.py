@@ -2,6 +2,10 @@
 
 Tests quote tradability validation, fill price calculation, stress fills,
 and ensures invalid quotes are never silently midpoint-filled.
+
+Spread-fraction convention: fractions apply to the FULL quoted spread
+(mid + 25% of spread for the base buy case), matching
+TECHNICAL_ARCHITECTURE.md §9 and FR-017.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ from tailhedge.backtest.fill_model import (
     validate_quote_tradability,
 )
 from tailhedge.data.fixtures import (
+    GF004_CHECK_TIME,
     GF004_EXPECTED_SPREAD_FRACTION,
     GF004_MAX_SPREAD_THRESHOLD,
     GF004_MAX_STALENESS_SECONDS,
@@ -44,6 +49,7 @@ def _make_quote(
         trade_date=trade_date,
         snapshot_ts_utc=snapshot_ts_utc,
         strike=4900.0,
+        expiration_date=date(2025, 2, 21),
         bid=bid,
         ask=ask,
         underlying_price=5000.0,
@@ -99,6 +105,16 @@ class TestQuoteTradability:
 
         assert result == QuoteTradability.STALE
 
+    def test_future_timestamp_rejected(self) -> None:
+        """Quote dated after the current time is suspect data, not fresh."""
+        quote = _make_quote(snapshot_ts_utc=datetime(2025, 1, 15, 21, 0, tzinfo=UTC))
+        config = _make_config()
+        current_time = datetime(2025, 1, 15, 20, 45, tzinfo=UTC)
+
+        result = validate_quote_tradability(quote, current_time, config)
+
+        assert result == QuoteTradability.TIMESTAMP_IN_FUTURE
+
     def test_zero_bid_rejected(self) -> None:
         """Quote with zero bid should be rejected."""
         quote = _make_quote(bid=0.0, ask=0.0)
@@ -150,77 +166,80 @@ class TestGF004WideStaleQuote:
 
     def test_wide_spread_detected(self) -> None:
         """Wide spread quote should be detected."""
+        snapshot = GF004_WIDE_SPREAD_SNAPSHOT
+        assert snapshot.snapshot_ts_utc is not None
         quote = Quote(
-            trade_date=GF004_WIDE_SPREAD_SNAPSHOT.trade_date,
-            snapshot_ts_utc=datetime(2025, 1, 15, 20, 45, tzinfo=UTC),
-            strike=GF004_WIDE_SPREAD_SNAPSHOT.strike,
-            bid=GF004_WIDE_SPREAD_SNAPSHOT.bid,
-            ask=GF004_WIDE_SPREAD_SNAPSHOT.ask,
-            underlying_price=GF004_WIDE_SPREAD_SNAPSHOT.underlying_price,
+            trade_date=snapshot.trade_date,
+            snapshot_ts_utc=snapshot.snapshot_ts_utc,
+            strike=snapshot.strike,
+            expiration_date=snapshot.expiration_date,
+            bid=snapshot.bid,
+            ask=snapshot.ask,
+            underlying_price=snapshot.underlying_price,
         )
         config = _make_config(max_relative_spread=GF004_MAX_SPREAD_THRESHOLD)
-        current_time = quote.snapshot_ts_utc
 
-        result = validate_quote_tradability(quote, current_time, config)
+        result = validate_quote_tradability(quote, snapshot.snapshot_ts_utc, config)
 
         assert result == QuoteTradability.WIDE_SPREAD
 
     def test_spread_fraction_calculation(self) -> None:
-        """Spread fraction should match GF-004 expected."""
-        quote = Quote(
-            trade_date=GF004_WIDE_SPREAD_SNAPSHOT.trade_date,
-            snapshot_ts_utc=datetime(2025, 1, 15, 20, 45, tzinfo=UTC),
-            strike=GF004_WIDE_SPREAD_SNAPSHOT.strike,
-            bid=GF004_WIDE_SPREAD_SNAPSHOT.bid,
-            ask=GF004_WIDE_SPREAD_SNAPSHOT.ask,
-            underlying_price=GF004_WIDE_SPREAD_SNAPSHOT.underlying_price,
-        )
-
-        mid = (quote.bid + quote.ask) / 2
-        spread = quote.ask - quote.bid
+        """Spread fraction should match GF-004 expected (0.40)."""
+        snapshot = GF004_WIDE_SPREAD_SNAPSHOT
+        mid = (snapshot.bid + snapshot.ask) / 2
+        spread = snapshot.ask - snapshot.bid
         relative_spread = spread / mid
 
         assert relative_spread == pytest.approx(GF004_EXPECTED_SPREAD_FRACTION)
 
     def test_wide_spread_no_order(self) -> None:
-        """Wide spread should result in no tradable order."""
+        """Wide spread should result in no tradable fill."""
+        snapshot = GF004_WIDE_SPREAD_SNAPSHOT
+        assert snapshot.snapshot_ts_utc is not None
         quote = Quote(
-            trade_date=GF004_WIDE_SPREAD_SNAPSHOT.trade_date,
-            snapshot_ts_utc=datetime(2025, 1, 15, 20, 45, tzinfo=UTC),
-            strike=GF004_WIDE_SPREAD_SNAPSHOT.strike,
-            bid=GF004_WIDE_SPREAD_SNAPSHOT.bid,
-            ask=GF004_WIDE_SPREAD_SNAPSHOT.ask,
-            underlying_price=GF004_WIDE_SPREAD_SNAPSHOT.underlying_price,
+            trade_date=snapshot.trade_date,
+            snapshot_ts_utc=snapshot.snapshot_ts_utc,
+            strike=snapshot.strike,
+            expiration_date=snapshot.expiration_date,
+            bid=snapshot.bid,
+            ask=snapshot.ask,
+            underlying_price=snapshot.underlying_price,
         )
         config = _make_config(max_relative_spread=GF004_MAX_SPREAD_THRESHOLD)
-        current_time = quote.snapshot_ts_utc
 
-        result = calculate_fill(quote, FillSide.BUY, 1, current_time, config)
+        result = calculate_fill(
+            quote, FillSide.BUY, 1, snapshot.snapshot_ts_utc, config
+        )
 
         assert result.is_tradable is False
         assert result.tradability == QuoteTradability.WIDE_SPREAD
+        assert result.fill_price == 0.0
+        assert result.commission == 0.0
 
     def test_stale_quote_no_order(self) -> None:
-        """Stale quote should result in no tradable order."""
+        """Stale quote should result in no tradable fill (fixture timestamp)."""
+        snapshot = GF004_STALE_SNAPSHOT
+        assert snapshot.snapshot_ts_utc is not None
         quote = Quote(
-            trade_date=GF004_STALE_SNAPSHOT.trade_date,
-            snapshot_ts_utc=datetime(2025, 1, 15, 20, 0, tzinfo=UTC),
-            strike=GF004_STALE_SNAPSHOT.strike,
-            bid=GF004_STALE_SNAPSHOT.bid,
-            ask=GF004_STALE_SNAPSHOT.ask,
-            underlying_price=GF004_STALE_SNAPSHOT.underlying_price,
+            trade_date=snapshot.trade_date,
+            snapshot_ts_utc=snapshot.snapshot_ts_utc,
+            strike=snapshot.strike,
+            expiration_date=snapshot.expiration_date,
+            bid=snapshot.bid,
+            ask=snapshot.ask,
+            underlying_price=snapshot.underlying_price,
         )
         config = _make_config(max_quote_age_seconds=GF004_MAX_STALENESS_SECONDS)
-        current_time = datetime(2025, 1, 15, 20, 10, tzinfo=UTC)
 
-        result = calculate_fill(quote, FillSide.BUY, 1, current_time, config)
+        # 600s age at the fixture check time — beyond the 300s window.
+        result = calculate_fill(quote, FillSide.BUY, 1, GF004_CHECK_TIME, config)
 
         assert result.is_tradable is False
         assert result.tradability == QuoteTradability.STALE
 
 
 # ---------------------------------------------------------------------------
-# Fill price calculation
+# Fill price calculation (fraction of FULL spread)
 # ---------------------------------------------------------------------------
 
 
@@ -236,15 +255,15 @@ class TestFillPriceCalculation:
 
         assert price == pytest.approx(11.0)  # Midpoint
 
-    def test_buy_fill_at_25pct(self) -> None:
-        """BUY at 25% spread should be at mid + 25% of half-spread."""
+    def test_buy_fill_at_25pct_of_full_spread(self) -> None:
+        """BUY at 25% should be mid + 25% of the FULL spread (11.5)."""
         quote = _make_quote(bid=10.0, ask=12.0)
         config = _make_config()
 
         price = calculate_fill_price(quote, FillSide.BUY, 0.25, config)
 
-        # Mid = 11.0, spread = 2.0, half-spread = 1.0, 25% = 0.25, price = 11.25
-        assert price == pytest.approx(11.25)
+        # Mid = 11.0, spread = 2.0, 25% of spread = 0.5 -> 11.50
+        assert price == pytest.approx(11.50)
 
     def test_buy_fill_at_full_spread(self) -> None:
         """BUY at 100% spread should be at ask."""
@@ -264,15 +283,14 @@ class TestFillPriceCalculation:
 
         assert price == pytest.approx(11.0)  # Midpoint
 
-    def test_sell_fill_at_25pct(self) -> None:
-        """SELL at 25% spread should be at mid - 25% of half-spread."""
+    def test_sell_fill_at_25pct_of_full_spread(self) -> None:
+        """SELL at 25% should be mid - 25% of the FULL spread (10.5)."""
         quote = _make_quote(bid=10.0, ask=12.0)
         config = _make_config()
 
         price = calculate_fill_price(quote, FillSide.SELL, 0.25, config)
 
-        # Mid = 11.0, spread = 2.0, half-spread = 1.0, 25% = 0.25, price = 10.75
-        assert price == pytest.approx(10.75)
+        assert price == pytest.approx(10.50)
 
     def test_sell_fill_at_full_spread(self) -> None:
         """SELL at 100% spread should be at bid."""
@@ -290,8 +308,19 @@ class TestFillPriceCalculation:
 
         price = calculate_fill_price(quote, FillSide.BUY, 0.25, config)
 
-        # Mid = 10.05, spread = 0.06, half-spread = 0.03, 25% = 0.0075, price = 10.0575 -> 10.05
+        # Mid = 10.05, spread = 0.06, 25% = 0.015, raw = 10.065 -> 10.05
         assert price % 0.05 == pytest.approx(0.0)
+
+    def test_tick_rounding_clamped_inside_quote_band(self) -> None:
+        """Rounding must not push a BUY above the ask or SELL below bid."""
+        quote = _make_quote(bid=10.03, ask=10.04)
+        config = FillConfig(tick_size=0.05)
+
+        buy_price = calculate_fill_price(quote, FillSide.BUY, 1.0, config)
+        sell_price = calculate_fill_price(quote, FillSide.SELL, 1.0, config)
+
+        assert buy_price <= quote.ask
+        assert sell_price >= quote.bid
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +361,9 @@ class TestFillCalculation:
             _make_quote(bid=0.0, ask=0.0),  # Zero bid
             _make_quote(bid=15.0, ask=10.0),  # Crossed
             _make_quote(bid=-1.0, ask=10.0),  # Negative bid
+            _make_quote(
+                snapshot_ts_utc=datetime(2025, 1, 15, 22, 0, tzinfo=UTC)
+            ),  # Future timestamp
         ]
         config = _make_config()
         current_time = datetime(2025, 1, 15, 20, 45, tzinfo=UTC)
@@ -340,6 +372,24 @@ class TestFillCalculation:
             result = calculate_fill(quote, FillSide.BUY, 1, current_time, config)
             assert result.is_tradable is False
             assert result.fill_price == 0.0
+
+    def test_zero_quantity_rejected(self) -> None:
+        """Zero/negative quantity must be rejected, never silently filled."""
+        quote = _make_quote(bid=10.0, ask=11.0)
+        config = _make_config()
+        current_time = quote.snapshot_ts_utc
+
+        for quantity in (0, -1):
+            with pytest.raises(ValueError, match="quantity"):
+                calculate_fill(quote, FillSide.BUY, quantity, current_time, config)
+
+    def test_zero_quantity_rejected_on_commission(self) -> None:
+        """Commission must not compute for non-positive quantity."""
+        config = _make_config()
+
+        for quantity in (0, -1):
+            with pytest.raises(ValueError, match="quantity"):
+                calculate_commission(quantity, 100.0, config)
 
 
 # ---------------------------------------------------------------------------
@@ -375,6 +425,12 @@ class TestCommissionCalculation:
         # 6.5 + 1.0 = 7.5
         assert commission == pytest.approx(7.5)
 
+    def test_negative_fill_price_rejected(self) -> None:
+        """Commission with a negative fill price must fail."""
+        config = _make_config()
+        with pytest.raises(ValueError, match="fill_price"):
+            calculate_commission(1, -1.0, config)
+
 
 # ---------------------------------------------------------------------------
 # Stress fills
@@ -398,8 +454,29 @@ class TestStressFills:
         assert result.stress_50pct_fill.is_tradable
         assert result.full_spread_fill.is_tradable
 
+    def test_stress_ordering_buy(self) -> None:
+        """For BUY: full spread >= 50% >= base (25% of full) >= midpoint."""
+        quote = _make_quote(bid=10.0, ask=12.0)
+        config = _make_config()
+        current_time = quote.snapshot_ts_utc
+
+        result = calculate_stress_fills(quote, FillSide.BUY, 1, current_time, config)
+
+        prices = [
+            result.full_spread_fill.fill_price,
+            result.stress_50pct_fill.fill_price,
+            result.base_fill.fill_price,
+            result.midpoint_fill.fill_price,
+        ]
+        assert prices[0] >= prices[1] >= prices[2] >= prices[3]
+        # Base case (25% of full spread = 11.5) must be strictly worse than
+        # midpoint and strictly better than the 50% stress case.
+        assert result.base_fill.fill_price == pytest.approx(11.5)
+        assert result.stress_50pct_fill.fill_price == pytest.approx(12.0)
+        assert result.midpoint_fill.fill_price == pytest.approx(11.0)
+
     def test_midpoint_fill_is_diagnostic(self) -> None:
-        """Midpoint fill should be at exact midpoint."""
+        """Midpoint fill should be at exact midpoint (diagnostic only)."""
         quote = _make_quote(bid=10.0, ask=12.0)
         config = _make_config()
         current_time = quote.snapshot_ts_utc

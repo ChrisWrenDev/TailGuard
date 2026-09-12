@@ -1,190 +1,200 @@
 """Unit tests for backtest accounting ledger (T-003).
 
-Tests golden payoff ledger matches hand-calculated result and
-property-based cash invariants.
+Tests the GF-001 golden ledger against hand-calculated literals, input
+validation (no short puts, no unbacked cash use, no mis-settlement), unit
+tracking, and property-based cash/unit invariants.
 """
 
 from __future__ import annotations
 
+import math
 from datetime import date
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from tailhedge.backtest.ledger import (
     BacktestLedger,
-    EventType,
-    PositionAction,
 )
 from tailhedge.data.fixtures import (
+    GF001_EXPECTED_CASH_LEDGER,
     GF001_EXPECTED_FINAL_CASH,
+    GF001_EXPECTED_POSITIONS,
     GF001_INITIAL_CASH,
-    GF001_PREMIUM_MIDPOINT,
+    GF001_PREMIUM_FILL_BUY,
     GF001_PUT_EXPIRY,
     GF001_PUT_STRIKE,
-    GF001_XSP_MULTIPLIER,
 )
 
 # ---------------------------------------------------------------------------
-# T-003: Golden payoff ledger matches hand-calculated result
+# T-003: GF-001 golden ledger — full-ledger reconciliation
 # ---------------------------------------------------------------------------
 
 
 class TestGF001SimpleOptionPayoff:
-    """GF-001: Simple option payoff ledger reconciliation."""
+    """GF-001: ledger output must reconcile with the full expected ledger."""
 
     def test_initial_cash(self) -> None:
-        """Ledger should start with initial cash."""
-        ledger = BacktestLedger(initial_cash=GF001_INITIAL_CASH)
+        """Ledger should start with initial cash on the initial date."""
+        ledger = BacktestLedger(
+            initial_cash=GF001_INITIAL_CASH, initial_date=date(2025, 1, 15)
+        )
         assert ledger.get_cash_balance() == GF001_INITIAL_CASH
+        assert ledger.cash_events[0].trade_date == date(2025, 1, 15)
 
-    def test_buy_put_records_premium(self) -> None:
-        """Buying a put should deduct premium from cash."""
-        ledger = BacktestLedger(initial_cash=GF001_INITIAL_CASH)
-
+    def test_full_ledger_matches_fixture(self) -> None:
+        """Every event (date, type, amount, running cash) must match GF-001."""
+        ledger = BacktestLedger(
+            initial_cash=GF001_INITIAL_CASH, initial_date=date(2025, 1, 15)
+        )
         ledger.buy_put(
             trade_date=date(2025, 1, 15),
             strike=GF001_PUT_STRIKE,
             expiration_date=GF001_PUT_EXPIRY,
             quantity=1,
-            premium=GF001_PREMIUM_MIDPOINT,
+            premium=GF001_PREMIUM_FILL_BUY,
         )
-
-        expected_cash = (
-            GF001_INITIAL_CASH - GF001_PREMIUM_MIDPOINT * GF001_XSP_MULTIPLIER
-        )
-        assert ledger.get_cash_balance() == pytest.approx(expected_cash)
-
-    def test_settlement_itm_payoff(self) -> None:
-        """ITM put settlement should add payoff to cash."""
-        ledger = BacktestLedger(initial_cash=GF001_INITIAL_CASH)
-
-        ledger.buy_put(
+        ledger.record_transaction_cost(
             trade_date=date(2025, 1, 15),
-            strike=GF001_PUT_STRIKE,
-            expiration_date=GF001_PUT_EXPIRY,
-            quantity=1,
-            premium=GF001_PREMIUM_MIDPOINT,
+            cost=0.65,
+            description="Commission on buy (1 contract(s))",
         )
+        ledger.settle_expiry(trade_date=GF001_PUT_EXPIRY, underlying_price=4800.0)
 
-        # Underlying at 4800, strike at 4900 -> payoff = 100
-        # Settlement happens on expiry date
-        ledger.settle_expiry(
-            trade_date=GF001_PUT_EXPIRY,
-            underlying_price=4800.0,
-        )
-
-        expected_payoff = (GF001_PUT_STRIKE - 4800.0) * GF001_XSP_MULTIPLIER
-        expected_cash = (
-            GF001_INITIAL_CASH
-            - GF001_PREMIUM_MIDPOINT * GF001_XSP_MULTIPLIER
-            + expected_payoff
-        )
-        assert ledger.get_cash_balance() == pytest.approx(expected_cash)
+        actual = [
+            (e.trade_date, e.event_type.value, e.amount, e.running_cash)
+            for e in ledger.cash_events
+        ]
+        expected = [
+            (e.trade_date, e.event_type, e.amount, e.running_cash)
+            for e in GF001_EXPECTED_CASH_LEDGER
+        ]
+        assert len(actual) == len(expected)
+        for (a_date, a_type, a_amount, a_running), (
+            e_date,
+            e_type,
+            e_amount,
+            e_running,
+        ) in zip(actual, expected, strict=True):
+            assert a_date == e_date
+            assert a_type == e_type
+            assert a_amount == pytest.approx(e_amount)
+            assert a_running == pytest.approx(e_running)
 
     def test_final_cash_matches_fixture(self) -> None:
-        """Final cash should match GF-001 expected."""
-        ledger = BacktestLedger(initial_cash=GF001_INITIAL_CASH)
-
+        ledger = BacktestLedger(
+            initial_cash=GF001_INITIAL_CASH, initial_date=date(2025, 1, 15)
+        )
         ledger.buy_put(
             trade_date=date(2025, 1, 15),
             strike=GF001_PUT_STRIKE,
             expiration_date=GF001_PUT_EXPIRY,
             quantity=1,
-            premium=GF001_PREMIUM_MIDPOINT,
+            premium=GF001_PREMIUM_FILL_BUY,
         )
-
-        ledger.settle_expiry(
-            trade_date=GF001_PUT_EXPIRY,
-            underlying_price=4800.0,
-        )
+        ledger.record_transaction_cost(trade_date=date(2025, 1, 15), cost=0.65)
+        ledger.settle_expiry(trade_date=GF001_PUT_EXPIRY, underlying_price=4800.0)
 
         assert ledger.get_final_cash() == pytest.approx(GF001_EXPECTED_FINAL_CASH)
 
-    def test_cash_ledger_events_match_fixture(self) -> None:
-        """Cash ledger events should match GF-001 expected."""
-        ledger = BacktestLedger(initial_cash=GF001_INITIAL_CASH)
-
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=GF001_PUT_STRIKE,
-            expiration_date=GF001_PUT_EXPIRY,
-            quantity=1,
-            premium=GF001_PREMIUM_MIDPOINT,
-        )
-
-        ledger.settle_expiry(
-            trade_date=GF001_PUT_EXPIRY,
-            underlying_price=4800.0,
-        )
-
-        # Filter out the initial event (date is placeholder)
-        actual_events = [
-            e for e in ledger.cash_events if e.event_type != EventType.INITIAL
-        ]
-
-        assert len(actual_events) == 2
-
-        # Premium event
-        premium_event = actual_events[0]
-        assert premium_event.event_type == EventType.PREMIUM
-        assert premium_event.amount == pytest.approx(
-            -GF001_PREMIUM_MIDPOINT * GF001_XSP_MULTIPLIER
-        )
-
-        # Settlement event
-        settlement_event = actual_events[1]
-        assert settlement_event.event_type == EventType.SETTLEMENT
-        assert settlement_event.amount == pytest.approx(
-            (GF001_PUT_STRIKE - 4800.0) * GF001_XSP_MULTIPLIER
-        )
-
     def test_position_events_match_fixture(self) -> None:
-        """Position events should match GF-001 expected."""
-        ledger = BacktestLedger(initial_cash=GF001_INITIAL_CASH)
-
+        ledger = BacktestLedger(
+            initial_cash=GF001_INITIAL_CASH, initial_date=date(2025, 1, 15)
+        )
         ledger.buy_put(
             trade_date=date(2025, 1, 15),
             strike=GF001_PUT_STRIKE,
             expiration_date=GF001_PUT_EXPIRY,
             quantity=1,
-            premium=GF001_PREMIUM_MIDPOINT,
+            premium=GF001_PREMIUM_FILL_BUY,
         )
+        ledger.settle_expiry(trade_date=GF001_PUT_EXPIRY, underlying_price=4800.0)
 
-        ledger.settle_expiry(
-            trade_date=GF001_PUT_EXPIRY,
-            underlying_price=4800.0,
-        )
-
-        assert len(ledger.position_events) == 2
-
-        buy_event = ledger.position_events[0]
-        assert buy_event.action == PositionAction.BUY
-        assert buy_event.quantity == 1
-        assert buy_event.running_positions == 1
-
-        expire_event = ledger.position_events[1]
-        assert expire_event.action == PositionAction.EXPIRED
-        assert expire_event.quantity == 1
-        assert expire_event.running_positions == 0
+        actual = [
+            (p.trade_date, p.action.value, p.quantity, p.running_positions)
+            for p in ledger.position_events
+        ]
+        expected = [
+            (p.trade_date, p.action, p.quantity, p.running_positions)
+            for p in GF001_EXPECTED_POSITIONS
+        ]
+        assert actual == expected
 
 
 # ---------------------------------------------------------------------------
-# Property-based cash invariants
+# Input validation (fail closed)
 # ---------------------------------------------------------------------------
 
 
-class TestCashInvariants:
-    """Property-based tests for cash invariants."""
+class TestInputValidation:
+    """Malformed inputs must fail closed — no short puts, no cash creation."""
 
-    def test_cash_conservation_no_events(self) -> None:
-        """Cash should be conserved with no events after initial."""
+    def test_negative_quantity_buy_rejected(self) -> None:
+        """A negative-quantity buy is a sell-to-open and must be rejected."""
         ledger = BacktestLedger(initial_cash=100_000.0)
-        assert ledger.validate_cash_conservation()
+        with pytest.raises(ValueError, match="sell-to-open"):
+            ledger.buy_put(
+                trade_date=date(2025, 1, 15),
+                strike=4900.0,
+                expiration_date=date(2025, 2, 21),
+                quantity=-1,
+                premium=102.50,
+            )
+        assert ledger.get_position_count() == 0
+        assert ledger.get_cash_balance() == 100_000.0
 
-    def test_cash_conservation_after_buy(self) -> None:
-        """Cash should be conserved after buying a put."""
+    def test_zero_quantity_buy_rejected(self) -> None:
         ledger = BacktestLedger(initial_cash=100_000.0)
+        with pytest.raises(ValueError, match="quantity"):
+            ledger.buy_put(
+                trade_date=date(2025, 1, 15),
+                strike=4900.0,
+                expiration_date=date(2025, 2, 21),
+                quantity=0,
+                premium=102.50,
+            )
 
+    def test_negative_premium_buy_rejected(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        with pytest.raises(ValueError, match="premium"):
+            ledger.buy_put(
+                trade_date=date(2025, 1, 15),
+                strike=4900.0,
+                expiration_date=date(2025, 2, 21),
+                quantity=1,
+                premium=-102.50,
+            )
+        assert ledger.get_cash_balance() == 100_000.0
+
+    def test_buy_after_expiry_rejected(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        with pytest.raises(ValueError, match="expiration_date"):
+            ledger.buy_put(
+                trade_date=date(2025, 2, 21),
+                strike=4900.0,
+                expiration_date=date(2025, 2, 21),
+                quantity=1,
+                premium=102.50,
+            )
+
+    def test_insufficient_cash_buy_rejected(self) -> None:
+        """Buying beyond available cash must fail (no borrowing/margin)."""
+        ledger = BacktestLedger(initial_cash=100.0)
+        with pytest.raises(ValueError, match="Insufficient cash"):
+            ledger.buy_put(
+                trade_date=date(2025, 1, 15),
+                strike=4900.0,
+                expiration_date=date(2025, 2, 21),
+                quantity=100,
+                premium=102.50,
+            )
+        assert ledger.get_cash_balance() == 100.0
+        assert ledger.get_position_count() == 0
+
+    def test_negative_quantity_sell_rejected(self) -> None:
+        """A negative-quantity sell must not create phantom positions/cash loss."""
+        ledger = BacktestLedger(initial_cash=100_000.0)
         ledger.buy_put(
             trade_date=date(2025, 1, 15),
             strike=4900.0,
@@ -192,211 +202,37 @@ class TestCashInvariants:
             quantity=1,
             premium=102.50,
         )
-
-        assert ledger.validate_cash_conservation()
-
-    def test_cash_conservation_after_settlement(self) -> None:
-        """Cash should be conserved after settlement."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
-
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 1, 20),
-            quantity=1,
-            premium=102.50,
-        )
-
-        ledger.settle_expiry(
-            trade_date=date(2025, 1, 20),
-            underlying_price=4800.0,
-        )
-
-        assert ledger.validate_cash_conservation()
-
-    def test_cash_conservation_multiple_positions(self) -> None:
-        """Cash should be conserved with multiple positions."""
-        ledger = BacktestLedger(initial_cash=200_000.0)
-
-        # Buy two different puts
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 2, 21),
-            quantity=1,
-            premium=102.50,
-        )
-
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4800.0,
-            expiration_date=date(2025, 3, 21),
-            quantity=2,
-            premium=80.00,
-        )
-
-        # Settle first position
-        ledger.settle_expiry(
-            trade_date=date(2025, 2, 21),
-            underlying_price=4800.0,
-        )
-
-        assert ledger.validate_cash_conservation()
-
-    def test_no_cash_creation(self) -> None:
-        """Ledger should not create cash from nothing."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
-
-        # Buy OTM put (expires worthless)
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 1, 20),
-            quantity=1,
-            premium=102.50,
-        )
-
-        # Settle with underlying above strike (OTM)
-        ledger.settle_expiry(
-            trade_date=date(2025, 1, 20),
-            underlying_price=5000.0,
-        )
-
-        # Cash should be less than initial (premium lost)
-        assert ledger.get_cash_balance() < 100_000.0
-        assert ledger.validate_cash_conservation()
-
-    def test_no_cash_destruction(self) -> None:
-        """Ledger should not destroy cash without explicit events."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
-
-        # Buy ITM put
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 1, 20),
-            quantity=1,
-            premium=102.50,
-        )
-
-        # Settle with underlying below strike (ITM)
-        ledger.settle_expiry(
-            trade_date=date(2025, 1, 20),
-            underlying_price=4800.0,
-        )
-
-        # Cash should be initial minus premium plus payoff
-        expected = 100_000.0 - 102.50 * 100 + (4900.0 - 4800.0) * 100
-        assert ledger.get_cash_balance() == pytest.approx(expected)
-        assert ledger.validate_cash_conservation()
-
-
-# ---------------------------------------------------------------------------
-# Edge cases
-# ---------------------------------------------------------------------------
-
-
-class TestLedgerEdgeCases:
-    """Edge cases for backtest ledger."""
-
-    def test_otm_settlement_zero_payoff(self) -> None:
-        """OTM put settlement should result in zero payoff."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
-
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 1, 20),
-            quantity=1,
-            premium=102.50,
-        )
-
-        # Underlying above strike -> OTM
-        ledger.settle_expiry(
-            trade_date=date(2025, 1, 20),
-            underlying_price=5000.0,
-        )
-
-        # Only premium lost
-        expected = 100_000.0 - 102.50 * 100
-        assert ledger.get_cash_balance() == pytest.approx(expected)
-
-    def test_atm_settlement_zero_payoff(self) -> None:
-        """ATM put settlement should result in zero payoff."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
-
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 1, 20),
-            quantity=1,
-            premium=102.50,
-        )
-
-        # Underlying at strike -> ATM
-        ledger.settle_expiry(
-            trade_date=date(2025, 1, 20),
-            underlying_price=4900.0,
-        )
-
-        # Only premium lost
-        expected = 100_000.0 - 102.50 * 100
-        assert ledger.get_cash_balance() == pytest.approx(expected)
-
-    def test_sell_to_close(self) -> None:
-        """Sell to close should add proceeds to cash."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
-
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 2, 21),
-            quantity=1,
-            premium=102.50,
-        )
-
-        # Sell before expiry at higher price
-        ledger.sell_to_close(
-            trade_date=date(2025, 1, 20),
-            strike=4900.0,
-            expiration_date=date(2025, 2, 21),
-            quantity=1,
-            price=150.0,
-        )
-
-        expected = 100_000.0 - 102.50 * 100 + 150.0 * 100
-        assert ledger.get_cash_balance() == pytest.approx(expected)
-
-    def test_sell_to_close_partial(self) -> None:
-        """Partial sell to close should reduce position."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
-
-        ledger.buy_put(
-            trade_date=date(2025, 1, 15),
-            strike=4900.0,
-            expiration_date=date(2025, 2, 21),
-            quantity=2,
-            premium=102.50,
-        )
-
-        assert ledger.get_position_count() == 2
-
-        # Sell 1 contract
-        ledger.sell_to_close(
-            trade_date=date(2025, 1, 20),
-            strike=4900.0,
-            expiration_date=date(2025, 2, 21),
-            quantity=1,
-            price=150.0,
-        )
-
+        with pytest.raises(ValueError, match="quantity"):
+            ledger.sell_to_close(
+                trade_date=date(2025, 1, 20),
+                strike=4900.0,
+                expiration_date=date(2025, 2, 21),
+                quantity=-1,
+                price=150.0,
+            )
         assert ledger.get_position_count() == 1
-        assert ledger.validate_cash_conservation()
 
-    def test_sell_to_close_nonexistent_position(self) -> None:
-        """Selling non-existent position should raise error."""
+    def test_negative_price_sell_rejected(self) -> None:
         ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 2, 21),
+            quantity=1,
+            premium=102.50,
+        )
+        with pytest.raises(ValueError, match="price"):
+            ledger.sell_to_close(
+                trade_date=date(2025, 1, 20),
+                strike=4900.0,
+                expiration_date=date(2025, 2, 21),
+                quantity=1,
+                price=-150.0,
+            )
+        assert ledger.get_position_count() == 1
 
+    def test_sell_to_close_unowned_position_rejected(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
         with pytest.raises(ValueError, match="No matching position"):
             ledger.sell_to_close(
                 trade_date=date(2025, 1, 20),
@@ -406,35 +242,339 @@ class TestLedgerEdgeCases:
                 price=150.0,
             )
 
-    def test_reinvestment(self) -> None:
-        """Reinvestment should deduct cash."""
+    def test_reinvestment_requires_positive_amount_and_price(self) -> None:
         ledger = BacktestLedger(initial_cash=100_000.0)
+        with pytest.raises(ValueError, match="amount"):
+            ledger.reinvest(trade_date=date(2025, 1, 20), amount=0.0, price=4500.0)
+        with pytest.raises(ValueError, match="price"):
+            ledger.reinvest(trade_date=date(2025, 1, 20), amount=1000.0, price=0.0)
 
-        ledger.reinvest(
-            trade_date=date(2025, 1, 20),
-            amount=50_000.0,
+    def test_reinvestment_beyond_cash_rejected(self) -> None:
+        ledger = BacktestLedger(initial_cash=100.0)
+        with pytest.raises(ValueError, match="Insufficient cash"):
+            ledger.reinvest(trade_date=date(2025, 1, 20), amount=1_000.0, price=10.0)
+
+    def test_negative_transaction_cost_rejected(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        with pytest.raises(ValueError, match="cost"):
+            ledger.record_transaction_cost(trade_date=date(2025, 1, 20), cost=-1.0)
+
+    def test_invalid_currency_rejected(self) -> None:
+        with pytest.raises(ValueError, match="currency"):
+            BacktestLedger(initial_cash=100.0, currency="usd")
+
+    def test_cash_events_carry_contract_identifiers(self) -> None:
+        """Cash events must link to the option contract for audit."""
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 2, 21),
+            quantity=1,
+            premium=102.50,
         )
+        premium_event = ledger.cash_events[-1]
+        assert premium_event.strike == 4900.0
+        assert premium_event.expiration_date == date(2025, 2, 21)
 
-        assert ledger.get_cash_balance() == pytest.approx(50_000.0)
+
+# ---------------------------------------------------------------------------
+# Settlement correctness
+# ---------------------------------------------------------------------------
+
+
+class TestSettlement:
+    """Expiry settlement must happen on the expiry day, priced at expiry."""
+
+    def test_settlement_on_expiry_date(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 1, 20),
+            quantity=1,
+            premium=102.50,
+        )
+        ledger.settle_expiry(trade_date=date(2025, 1, 20), underlying_price=4800.0)
+        expected = 100_000.0 - 102.50 * 100 + (4900.0 - 4800.0) * 100
+        assert ledger.get_cash_balance() == pytest.approx(expected)
+
+    def test_settlement_not_before_expiry(self) -> None:
+        """Calling settle before expiry must not settle anything."""
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 1, 20),
+            quantity=1,
+            premium=102.50,
+        )
+        ledger.settle_expiry(trade_date=date(2025, 1, 18), underlying_price=4000.0)
+        assert ledger.get_position_count() == 1
+
+    def test_missed_settlement_fails_closed(self) -> None:
+        """Settling after the expiry date must raise, not misprice."""
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 1, 20),
+            quantity=1,
+            premium=102.50,
+        )
+        # Jan-21 call would previously misprice a Jan-20 expiry at 4000:
+        # true payoff (100*100) vs wrong payoff (90*100).
+        with pytest.raises(ValueError, match="never settled"):
+            ledger.settle_expiry(trade_date=date(2025, 1, 21), underlying_price=4000.0)
+
+    def test_otm_settlement_description_is_accurate(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 1, 20),
+            quantity=1,
+            premium=102.50,
+        )
+        ledger.settle_expiry(trade_date=date(2025, 1, 20), underlying_price=5000.0)
+        assert "OTM" in ledger.cash_events[-1].description
+        assert "ITM" not in ledger.cash_events[-1].description
+
+    def test_itm_settlement_description(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 1, 20),
+            quantity=1,
+            premium=102.50,
+        )
+        ledger.settle_expiry(trade_date=date(2025, 1, 20), underlying_price=4800.0)
+        assert "ITM" in ledger.cash_events[-1].description
+
+
+# ---------------------------------------------------------------------------
+# Cash conservation
+# ---------------------------------------------------------------------------
+
+
+class TestCashInvariants:
+    """Cash conservation across representative flows."""
+
+    def test_cash_conservation_no_events(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0)
         assert ledger.validate_cash_conservation()
 
-    def test_transaction_cost(self) -> None:
-        """Transaction cost should deduct cash."""
-        ledger = BacktestLedger(initial_cash=100_000.0)
+    def test_cash_conservation_after_flows(self) -> None:
+        ledger = BacktestLedger(initial_cash=200_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 2, 21),
+            quantity=1,
+            premium=102.50,
+        )
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4800.0,
+            expiration_date=date(2025, 3, 21),
+            quantity=2,
+            premium=80.00,
+        )
+        ledger.sell_to_close(
+            trade_date=date(2025, 2, 10),
+            strike=4900.0,
+            expiration_date=date(2025, 2, 21),
+            quantity=1,
+            price=150.0,
+        )
+        ledger.record_transaction_cost(trade_date=date(2025, 2, 10), cost=1.95)
+        ledger.settle_expiry(trade_date=date(2025, 3, 21), underlying_price=4700.0)
+        ledger.reinvest(trade_date=date(2025, 3, 24), amount=10_000.0, price=4700.0)
 
-        ledger.record_transaction_cost(
-            trade_date=date(2025, 1, 20),
-            cost=10.0,
+        assert ledger.validate_cash_conservation()
+        expected = (
+            200_000.0
+            - 102.50 * 100
+            - 2 * 80 * 100
+            + 150 * 100
+            - 1.95
+            + 100 * 100
+            + 10_000.0
+            - 10_000.0
+        )
+        assert ledger.get_cash_balance() == pytest.approx(expected)
+
+
+# ---------------------------------------------------------------------------
+# Unit tracking (core portfolio)
+# ---------------------------------------------------------------------------
+
+
+class TestUnitTracking:
+    """Core portfolio units are tracked and conserved."""
+
+    def test_initial_units(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0, initial_units=200.0)
+        assert ledger.get_units() == 200.0
+
+    def test_reinvestment_buys_units(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0, initial_units=200.0)
+        units_bought = ledger.reinvest(
+            trade_date=date(2025, 1, 20), amount=39_750.0, price=4500.0
+        )
+        assert units_bought == pytest.approx(8.8333333333)
+        assert ledger.get_units() == pytest.approx(208.8333333333)
+        assert ledger.get_cash_balance() == pytest.approx(60_250.0)
+        assert ledger.validate_unit_conservation()
+
+    def test_portfolio_value(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0, initial_units=200.0)
+        assert ledger.portfolio_value(500.0) == pytest.approx(200_000.0)
+        ledger.reinvest(trade_date=date(2025, 1, 20), amount=39_750.0, price=4500.0)
+        # Reinvesting at the current price keeps combined value unchanged:
+        # 60,250 cash + 208.8333... * 4500 = 1,000,000
+        assert ledger.portfolio_value(4500.0) == pytest.approx(1_000_000.0)
+
+    def test_unit_conservation_detects_tampering(self) -> None:
+        ledger = BacktestLedger(initial_cash=100_000.0, initial_units=200.0)
+        ledger.units += 1.0  # simulate internal state corruption
+        assert not ledger.validate_unit_conservation()
+
+
+# ---------------------------------------------------------------------------
+# Property-based invariants (Hypothesis)
+# ---------------------------------------------------------------------------
+
+_STRIKE = 4900.0
+_EXPIRY = date(2026, 6, 30)
+
+
+@st.composite
+def _lifecycle_scenarios(draw: st.DrawFn) -> dict[str, object]:
+    """Generate a feasible buy -> partial sells -> settlement lifecycle."""
+    quantity = draw(st.integers(min_value=1, max_value=10))
+    premium = draw(st.floats(min_value=0.0, max_value=200.0))
+    cost = premium * quantity * 100
+    initial_cash = cost * draw(st.floats(min_value=1.1, max_value=3.0))
+
+    sells = []
+    remaining = quantity
+    n_sells = draw(st.integers(min_value=0, max_value=quantity))
+    for _ in range(n_sells):
+        if remaining == 0:
+            break
+        sell_qty = draw(st.integers(min_value=1, max_value=remaining))
+        remaining -= sell_qty
+        sells.append(
+            {
+                "quantity": sell_qty,
+                "price": draw(st.floats(min_value=0.0, max_value=500.0)),
+            }
         )
 
-        assert ledger.get_cash_balance() == pytest.approx(99_990.0)
+    settle = draw(st.booleans())
+    underlying_at_expiry = draw(st.floats(min_value=0.0, max_value=6000.0))
+
+    return {
+        "quantity": quantity,
+        "premium": premium,
+        "initial_cash": initial_cash,
+        "sells": sells,
+        "remaining": remaining,
+        "settle": settle,
+        "underlying_at_expiry": underlying_at_expiry,
+    }
+
+
+class TestPropertyBasedInvariants:
+    """Property-based cash/unit invariants with independent expected values.
+
+    Expected cash is recomputed in the test from the scenario parameters
+    (independent of the ledger's event accounting), so any unexplained
+    cash creation or loss in the ledger fails the test.
+    """
+
+    @settings(max_examples=100)
+    @given(scenario=_lifecycle_scenarios())
+    def test_cash_matches_independent_expected_value(
+        self, scenario: dict[str, object]
+    ) -> None:
+        quantity = int(scenario["quantity"])
+        premium = float(scenario["premium"])
+        initial_cash = float(scenario["initial_cash"])
+        sells = scenario["sells"]
+        remaining = int(scenario["remaining"])
+        settle = bool(scenario["settle"])
+        underlying = float(scenario["underlying_at_expiry"])
+
+        ledger = BacktestLedger(
+            initial_cash=initial_cash, initial_date=date(2025, 1, 15)
+        )
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=_STRIKE,
+            expiration_date=_EXPIRY,
+            quantity=quantity,
+            premium=premium,
+        )
+
+        # Independently computed expected cash
+        expected = initial_cash - premium * quantity * 100
+        for sell in sells:
+            assert isinstance(sell, dict)
+            ledger.sell_to_close(
+                trade_date=date(2025, 3, 2),
+                strike=_STRIKE,
+                expiration_date=_EXPIRY,
+                quantity=int(sell["quantity"]),
+                price=float(sell["price"]),
+            )
+            expected += float(sell["price"]) * int(sell["quantity"]) * 100
+
+        if settle:
+            ledger.settle_expiry(trade_date=_EXPIRY, underlying_price=underlying)
+            expected += max(0.0, _STRIKE - underlying) * remaining * 100
+
+        assert ledger.validate_cash_conservation()
+        assert ledger.get_cash_balance() == pytest.approx(expected, abs=1e-6)
+        assert math.isfinite(ledger.get_cash_balance())
+
+    @settings(max_examples=50)
+    @given(
+        amount=st.floats(min_value=1.0, max_value=50_000.0),
+        price=st.floats(min_value=1.0, max_value=6000.0),
+    )
+    def test_reinvestment_units_match_independent_value(
+        self, amount: float, price: float
+    ) -> None:
+        ledger = BacktestLedger(
+            initial_cash=max(amount * 2.0, 1.0), initial_units=200.0
+        )
+        units_bought = ledger.reinvest(
+            trade_date=date(2025, 1, 20), amount=amount, price=price
+        )
+        assert units_bought == pytest.approx(amount / price, abs=1e-9)
+        assert ledger.get_units() == pytest.approx(200.0 + amount / price, abs=1e-9)
+        assert ledger.validate_unit_conservation()
         assert ledger.validate_cash_conservation()
 
-    def test_empty_ledger(self) -> None:
-        """Empty ledger should have correct initial state."""
-        ledger = BacktestLedger(initial_cash=0.0)
-
-        assert ledger.get_cash_balance() == 0.0
-        assert ledger.get_position_count() == 0
-        assert len(ledger.cash_events) == 1  # Initial event
-        assert len(ledger.position_events) == 0
+    def test_buy_sell_roundtrip_never_creates_cash(self) -> None:
+        """Buy-then-sell returns exactly (price - premium) * multiplier."""
+        ledger = BacktestLedger(initial_cash=100_000.0)
+        ledger.buy_put(
+            trade_date=date(2025, 1, 15),
+            strike=4900.0,
+            expiration_date=date(2025, 2, 21),
+            quantity=1,
+            premium=102.50,
+        )
+        ledger.sell_to_close(
+            trade_date=date(2025, 1, 20),
+            strike=4900.0,
+            expiration_date=date(2025, 2, 21),
+            quantity=1,
+            price=137.25,
+        )
+        expected = 100_000.0 + (137.25 - 102.50) * 100
+        assert ledger.get_cash_balance() == pytest.approx(expected)

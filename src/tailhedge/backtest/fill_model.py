@@ -5,10 +5,17 @@ quote tradability rules, and commissions hook.
 
 The fill model validates quotes before calculating fill prices and never
 silently midpoint-fills invalid/untradable quotes.
+
+Spread-fraction convention (matches TECHNICAL_ARCHITECTURE.md §9 and FR-017):
+the fraction applies to the *full* quoted spread, so a base fill of 25%
+means ``mid + 0.25 * (ask - bid)`` for buys and ``mid - 0.25 * (ask - bid)``
+for sells.  A fraction of 1.0 fills at the ask (buy) or bid (sell) and a
+fraction of 0.0 fills at the midpoint (diagnostic only).
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -34,6 +41,7 @@ class QuoteTradability(StrEnum):
     CROSSED = "CROSSED"
     NEGATIVE = "NEGATIVE"
     MISSING = "MISSING"
+    TIMESTAMP_IN_FUTURE = "TIMESTAMP_IN_FUTURE"
 
 
 @dataclass(frozen=True)
@@ -43,6 +51,7 @@ class Quote:
     trade_date: date
     snapshot_ts_utc: datetime
     strike: float
+    expiration_date: date
     bid: float
     ask: float
     underlying_price: float
@@ -50,12 +59,17 @@ class Quote:
 
 @dataclass(frozen=True)
 class FillConfig:
-    """Configuration for the fill model."""
+    """Configuration for the fill model.
+
+    ``base_fill_spread_fraction`` and ``stress_fill_spread_fraction`` are
+    fractions of the full quoted spread (0.25 = 25% of ask-bid), matching the
+    documented execution-cost convention.
+    """
 
     max_relative_spread: float = 0.20  # 20% of mid price
     max_quote_age_seconds: int = 300  # 5 minutes
-    base_fill_spread_fraction: float = 0.25  # 25% of spread for base case
-    stress_fill_spread_fraction: float = 0.50  # 50% of spread for stress case
+    base_fill_spread_fraction: float = 0.25  # 25% of the full spread
+    stress_fill_spread_fraction: float = 0.50  # 50% of the full spread
     commission_per_contract: float = 0.65  # USD per contract
     commission_rate: float = 0.0  # Percentage of trade value (0 = flat rate)
     tick_size: float = 0.05  # Minimum price increment
@@ -76,7 +90,12 @@ class FillResult:
 
 @dataclass(frozen=True)
 class StressFillResult:
-    """Result of stress fill calculations."""
+    """Result of stress fill calculations.
+
+    Cases are ordered from most to least conservative:
+    full spread (worst) >= 50% spread (stress) >= base (25%) >= midpoint
+    (diagnostic/optimistic only, never used for accounting).
+    """
 
     base_fill: FillResult
     midpoint_fill: FillResult
@@ -125,12 +144,36 @@ def validate_quote_tradability(
         if relative_spread > config.max_relative_spread:
             return QuoteTradability.WIDE_SPREAD
 
-    # Check staleness
+    # Check staleness (reject future timestamps too: a quote dated after
+    # "now" is suspect data, not a fresh quote)
     age_seconds = (current_time - quote.snapshot_ts_utc).total_seconds()
+    if age_seconds < 0:
+        return QuoteTradability.TIMESTAMP_IN_FUTURE
     if age_seconds > config.max_quote_age_seconds:
         return QuoteTradability.STALE
 
     return QuoteTradability.TRADABLE
+
+
+def _validate_quantity(quantity: int) -> None:
+    """Raise ValueError if quantity is not a positive contract count."""
+    if quantity <= 0:
+        msg = f"quantity must be a positive number of contracts, got {quantity}"
+        raise ValueError(msg)
+
+
+def _round_to_tick(
+    price: float, side: FillSide, bid: float, ask: float, tick: float
+) -> float:
+    """Round a fill price to the tick grid and clamp inside the quoted band.
+
+    The clamp guarantees the fill never exceeds the ask on a BUY or falls
+    below the bid on a SELL (consistent with the FR-017 limit-price cap).
+    """
+    rounded = round(price / tick) * tick
+    if side == FillSide.BUY:
+        return min(rounded, ask)
+    return max(rounded, bid)
 
 
 def calculate_fill_price(
@@ -141,8 +184,9 @@ def calculate_fill_price(
 ) -> float:
     """Calculate fill price based on bid/ask and spread fraction.
 
-    For BUY: fill = mid + spread_fraction * spread
-    For SELL: fill = mid - spread_fraction * spread
+    The fraction applies to the full quoted spread:
+    ``BUY: mid + spread_fraction * (ask - bid)`` and
+    ``SELL: mid - spread_fraction * (ask - bid)``.
 
     Parameters
     ----------
@@ -151,25 +195,25 @@ def calculate_fill_price(
     side : FillSide
         BUY or SELL.
     spread_fraction : float
-        Fraction of spread to use (0.0 = midpoint, 1.0 = full ask/bid).
+        Fraction of the full spread (0.0 = midpoint, 1.0 = full ask/bid).
     config : FillConfig
         Fill model configuration for tick rounding.
 
     Returns
     -------
     float
-        Calculated fill price rounded to tick size.
+        Calculated fill price rounded to tick size and clamped inside
+        the quoted band.
     """
     mid = (quote.bid + quote.ask) / 2
     spread = quote.ask - quote.bid
 
     if side == FillSide.BUY:
-        raw_price = mid + spread_fraction * (spread / 2)
+        raw_price = mid + spread_fraction * spread
     else:
-        raw_price = mid - spread_fraction * (spread / 2)
+        raw_price = mid - spread_fraction * spread
 
-    # Round to tick size
-    return round(raw_price / config.tick_size) * config.tick_size
+    return _round_to_tick(raw_price, side, quote.bid, quote.ask, config.tick_size)
 
 
 def calculate_commission(
@@ -193,9 +237,30 @@ def calculate_commission(
     float
         Total commission.
     """
+    _validate_quantity(quantity)
+    if fill_price < 0 or not math.isfinite(fill_price):
+        msg = f"fill_price must be a finite non-negative number, got {fill_price}"
+        raise ValueError(msg)
     flat_commission = quantity * config.commission_per_contract
     percentage_commission = quantity * fill_price * config.commission_rate
     return flat_commission + percentage_commission
+
+
+def _untradable_result(
+    side: FillSide,
+    spread_fraction: float,
+    tradability: QuoteTradability,
+) -> FillResult:
+    """Build the no-fill result for an untradable quote."""
+    return FillResult(
+        fill_price=0.0,
+        fill_side=side,
+        spread_fraction=spread_fraction,
+        commission=0.0,
+        is_tradable=False,
+        tradability=tradability,
+        rejection_reason=f"Quote not tradable: {tradability.value}",
+    )
 
 
 def calculate_fill(
@@ -225,18 +290,11 @@ def calculate_fill(
     FillResult
         Fill result with price, commission, and tradability status.
     """
+    _validate_quantity(quantity)
     tradability = validate_quote_tradability(quote, current_time, config)
 
     if tradability != QuoteTradability.TRADABLE:
-        return FillResult(
-            fill_price=0.0,
-            fill_side=side,
-            spread_fraction=0.0,
-            commission=0.0,
-            is_tradable=False,
-            tradability=tradability,
-            rejection_reason=f"Quote not tradable: {tradability.value}",
-        )
+        return _untradable_result(side, config.base_fill_spread_fraction, tradability)
 
     fill_price = calculate_fill_price(
         quote, side, config.base_fill_spread_fraction, config
@@ -262,11 +320,11 @@ def calculate_stress_fills(
 ) -> StressFillResult:
     """Calculate stress fill scenarios.
 
-    Mandatory robustness cases:
-    - Base case: mid + 25% spread
-    - Midpoint: diagnostic/optimistic
-    - 50% spread: stress case
-    - Full spread: worst case
+    Mandatory robustness cases (fractions of the full spread):
+    - Base case: mid + 25% of spread
+    - Midpoint: diagnostic/optimistic (never used for accounting)
+    - 50% of spread: stress case
+    - Full ask/bid: worst case
 
     Parameters
     ----------
@@ -314,7 +372,7 @@ def calculate_fill_with_fraction(
     current_time: datetime,
     config: FillConfig,
 ) -> FillResult:
-    """Calculate a fill with a specific spread fraction.
+    """Calculate a fill with a specific spread fraction (of the full spread).
 
     Parameters
     ----------
@@ -323,7 +381,7 @@ def calculate_fill_with_fraction(
     side : FillSide
         BUY or SELL.
     spread_fraction : float
-        Fraction of spread to use.
+        Fraction of the full spread (0.0 = midpoint, 1.0 = full ask/bid).
     quantity : int
         Number of contracts.
     current_time : datetime
@@ -336,18 +394,11 @@ def calculate_fill_with_fraction(
     FillResult
         Fill result with price, commission, and tradability status.
     """
+    _validate_quantity(quantity)
     tradability = validate_quote_tradability(quote, current_time, config)
 
     if tradability != QuoteTradability.TRADABLE:
-        return FillResult(
-            fill_price=0.0,
-            fill_side=side,
-            spread_fraction=spread_fraction,
-            commission=0.0,
-            is_tradable=False,
-            tradability=tradability,
-            rejection_reason=f"Quote not tradable: {tradability.value}",
-        )
+        return _untradable_result(side, spread_fraction, tradability)
 
     fill_price = calculate_fill_price(quote, side, spread_fraction, config)
     commission = calculate_commission(quantity, fill_price, config)

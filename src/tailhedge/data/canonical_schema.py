@@ -3,14 +3,19 @@
 Defines Pydantic models that validate required fields and enforce type constraints.
 Schema versioning is managed via a constant that must be bumped when the canonical
 schema changes in a backwards-incompatible way.
+
+All timestamps are enforced tz-aware and UTC (offset zero), matching the
+``timestamp[us, UTC]`` physical type in DATA_MODEL.md; vendor local times must
+be normalised to UTC before a row can enter the canonical layer (FR-003).
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime  # noqa: TC003
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class OptionType(StrEnum):
@@ -22,6 +27,20 @@ class OptionType(StrEnum):
 
 # Current canonical schema version.  Bump on breaking change.
 SCHEMA_VERSION = "1.0"
+
+_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+
+
+def _validate_utc(name: str, value: datetime) -> datetime:
+    """Require a timezone-aware datetime at offset zero (UTC)."""
+    if value.tzinfo is None or value.utcoffset() is None:
+        msg = f"{name} must be timezone-aware (UTC); got a naive datetime"
+        raise ValueError(msg)
+    offset = value.utcoffset()
+    if offset is None or offset.total_seconds() != 0:
+        msg = f"{name} must be expressed in UTC (offset zero); got offset {offset}"
+        raise ValueError(msg)
+    return value
 
 
 class CanonicalOptionRow(BaseModel):
@@ -70,6 +89,11 @@ class CanonicalOptionRow(BaseModel):
         None, description="Vendor-specific contract identifier (optional)."
     )
 
+    @field_validator("snapshot_ts_utc", mode="after")
+    @classmethod
+    def _snapshot_ts_is_utc(cls, value: datetime) -> datetime:
+        return _validate_utc("snapshot_ts_utc", value)
+
     @model_validator(mode="after")
     def _bid_ask_order(self) -> CanonicalOptionRow:
         if self.ask < self.bid:
@@ -99,21 +123,42 @@ class CanonicalUnderlyingRow(BaseModel):
     trade_date: date = Field(..., description="Trade date.")
     symbol: str = Field(..., min_length=1, description="Instrument symbol.")
     currency: str = Field(
-        ..., min_length=3, max_length=3, description="ISO 4217 currency code."
+        ...,
+        pattern=r"^[A-Z]{3}$",
+        description="ISO 4217 currency code (three uppercase letters).",
     )
-    open: float | None = Field(None, description="Open price (optional).")
-    high: float | None = Field(None, description="High price (optional).")
-    low: float | None = Field(None, description="Low price (optional).")
-    close: float = Field(..., description="Close price (required).")
-    adjusted_close: float | None = Field(None, description="Adjusted close (optional).")
+    open: float | None = Field(None, gt=0, description="Open price (optional).")
+    high: float | None = Field(None, gt=0, description="High price (optional).")
+    low: float | None = Field(None, gt=0, description="Low price (optional).")
+    close: float = Field(..., gt=0, description="Close price (required, positive).")
+    adjusted_close: float | None = Field(
+        None, gt=0, description="Adjusted close (optional)."
+    )
     total_return_index: float | None = Field(
         None, ge=0, description="Total return index (optional)."
     )
     source: str = Field(..., min_length=1, description="Data vendor/source identifier.")
 
+    @field_validator("timestamp_utc", mode="after")
+    @classmethod
+    def _timestamp_is_utc(cls, value: datetime) -> datetime:
+        return _validate_utc("timestamp_utc", value)
+
     @model_validator(mode="after")
-    def _high_low_order(self) -> CanonicalUnderlyingRow:
+    def _ohlc_consistency(self) -> CanonicalUnderlyingRow:
         if self.high is not None and self.low is not None and self.high < self.low:
             msg = f"high ({self.high}) must be >= low ({self.low})"
+            raise ValueError(msg)
+        if self.high is not None and self.close > self.high:
+            msg = f"close ({self.close}) must be <= high ({self.high})"
+            raise ValueError(msg)
+        if self.low is not None and self.close < self.low:
+            msg = f"close ({self.close}) must be >= low ({self.low})"
+            raise ValueError(msg)
+        if self.open is not None and self.high is not None and self.open > self.high:
+            msg = f"open ({self.open}) must be <= high ({self.high})"
+            raise ValueError(msg)
+        if self.open is not None and self.low is not None and self.open < self.low:
+            msg = f"open ({self.open}) must be >= low ({self.low})"
             raise ValueError(msg)
         return self

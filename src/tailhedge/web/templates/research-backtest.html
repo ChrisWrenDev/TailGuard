@@ -1,23 +1,36 @@
 {% extends "base.html" %}
 
+{% macro pct(v) %}{{ "%.2f%%"|format(v * 100) }}{% endmacro %}
+{% macro money(v) %}{{ "${:,.2f}".format(v) }}{% endmacro %}
+
 {% block title %}Backtest Results — TailHedge{% endblock %}
 
 {% block content %}
 <div class="page">
     <h1 class="page__title">Backtest Results</h1>
 
-    <section class="card" aria-labelledby="backtest-empty">
-        <h2 id="backtest-empty" class="card__title">Synthetic Backtest</h2>
+    <section class="card" aria-labelledby="synthetic-run">
+        <h2 id="synthetic-run" class="card__title">Synthetic Backtest</h2>
         <p class="card__text">
-            View backtest results and compare candidate strategies against baselines.
+            Runs a candidate hedged policy and every baseline through the same
+            deterministic engine, accounting ledger, and bid/ask fill model over a
+            seeded synthetic dataset (no licensed data, not observed history).
+            Annualised metrics cover the synthetic window only.
         </p>
+        <form method="post" action="/research/backtest/run">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button type="submit" class="btn">Run synthetic backtest</button>
+        </form>
+        {% if result is none or result is not defined or not result %}
         <div class="empty-state" role="status">
             <p class="empty-state__text">
                 No backtest results yet. Run a backtest to see results here.
             </p>
         </div>
+        {% endif %}
     </section>
 
+    {% if result %}
     <section class="card" aria-labelledby="metrics-summary">
         <h2 id="metrics-summary" class="card__title">Key Metrics</h2>
         <div class="metrics-table" role="region" aria-label="Backtest metrics">
@@ -31,46 +44,85 @@
                     </tr>
                 </thead>
                 <tbody>
+                    {% set no_hedge_cmp = result.baselines[0][1] %}
                     <tr>
-                        <td>CAGR</td>
-                        <td id="hedged-cagr">—</td>
-                        <td id="unhedged-cagr">—</td>
-                        <td id="cagr-delta">—</td>
+                        <td>CAGR (annualised over synthetic window)</td>
+                        <td data-testid="hedged-cagr">{{ pct(result.hedged.metrics.cagr) }}</td>
+                        <td>{{ pct(no_hedge_cmp.baseline_metrics.cagr) }}</td>
+                        <td>{{ pct(no_hedge_cmp.cagr_delta) }}</td>
                     </tr>
                     <tr>
                         <td>Max Drawdown</td>
-                        <td id="hedged-drawdown">—</td>
-                        <td id="unhedged-drawdown">—</td>
-                        <td id="drawdown-improvement">—</td>
+                        <td data-testid="hedged-drawdown">{{ pct(result.hedged.metrics.max_drawdown) }}</td>
+                        <td>{{ pct(no_hedge_cmp.baseline_metrics.max_drawdown) }}</td>
+                        <td>{{ pct(no_hedge_cmp.drawdown_improvement) }}</td>
                     </tr>
                     <tr>
-                        <td>Premium Spend (Annualised)</td>
-                        <td id="premium-spend">—</td>
-                        <td>—</td>
+                        <td>Premium Spend (Total / Annualised)</td>
+                        <td data-testid="premium-spend">{{ money(result.hedged.metrics.total_premium_spent) }} / {{ money(result.hedged.metrics.annualised_premium_spent) }}</td>
+                        <td>{{ money(no_hedge_cmp.baseline_metrics.total_premium_spent) }}</td>
                         <td>—</td>
                     </tr>
                     <tr>
-                        <td>Tail Efficiency</td>
-                        <td id="tail-efficiency">—</td>
+                        <td>Tail Efficiency (drawdown reduction per premium dollar)</td>
+                        <td data-testid="tail-efficiency">{{ "%.8f"|format(no_hedge_cmp.tail_efficiency) }}</td>
                         <td>—</td>
                         <td>—</td>
                     </tr>
                     <tr>
                         <td>Fold Utility</td>
-                        <td id="fold-utility" colspan="3">—</td>
+                        <td data-testid="fold-utility" colspan="3">{{ "%.4f"|format(no_hedge_cmp.fold_utility) }}</td>
+                    </tr>
+                    <tr>
+                        <td>Final Value (Initial {{ money(result.hedged.metrics.initial_value) }})</td>
+                        <td>{{ money(result.hedged.metrics.final_value) }}</td>
+                        <td>{{ money(no_hedge_cmp.baseline_metrics.final_value) }}</td>
+                        <td>—</td>
                     </tr>
                 </tbody>
             </table>
         </div>
+        <p class="card__text">
+            Synthetic dataset: {{ result.dataset_metadata.get('trading_days') }} trading days
+            (seed {{ result.dataset_metadata.get('seed') }}), a deterministic random walk with a
+            fixed crash episode. Annualised figures cover only this synthetic window.
+        </p>
     </section>
 
     <section class="card" aria-labelledby="baseline-comparison">
         <h2 id="baseline-comparison" class="card__title">Baseline Comparison</h2>
-        <div class="empty-state" role="status">
-            <p class="empty-state__text">
-                No baseline comparison data available.
-            </p>
+        <div class="metrics-table" role="region" aria-label="Baseline comparison">
+            <table class="table" aria-describedby="baseline-comparison">
+                <thead>
+                    <tr>
+                        <th scope="col">Baseline</th>
+                        <th scope="col">CAGR</th>
+                        <th scope="col">Max Drawdown</th>
+                        <th scope="col">Premium Spend</th>
+                        <th scope="col">Final Value</th>
+                        <th scope="col">Fold Utility vs Hedged</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry, comparison in result.baselines %}
+                    <tr data-testid="baseline-row">
+                        <td>{{ entry.name }}</td>
+                        <td>{{ pct(entry.metrics.cagr) }}</td>
+                        <td>{{ pct(entry.metrics.max_drawdown) }}</td>
+                        <td>{{ money(entry.metrics.total_premium_spent) }}</td>
+                        <td>{{ money(entry.metrics.final_value) }}</td>
+                        <td>{{ "%.4f"|format(comparison.fold_utility) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
+        <p class="card__text">
+            All baselines run through the same engine, accounting ledger, and
+            bid/ask fill model as the hedged policy. Losing or underperforming
+            baselines are never hidden.
+        </p>
     </section>
+    {% endif %}
 </div>
 {% endblock %}

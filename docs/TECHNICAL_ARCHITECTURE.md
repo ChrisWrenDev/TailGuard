@@ -333,6 +333,16 @@ All rates are decimals (e.g. 0.08 = 8%). Premium cost is already reflected in he
 
 This exact profile is an **assumption** and must be implemented as versioned configuration, not hard-coded financial truth. Research reports always show underlying metrics so strategy selection is not reduced to the scalar.
 
+Metric conventions (implemented in `tailhedge.backtest.metrics`, TASK-013):
+
+- All rates are decimals (e.g. `0.08` = 8%).
+- CAGR is geometric annualisation `(final/initial)^(1/years) − 1`; non-positive initial/final values or years raise (fail closed — a ruined backtest is never scored as "0% growth").
+- Max drawdown is peak-to-trough on the equity curve, reported as a negative decimal; `max_drawdown_periods` counts observation periods between the peak and the trough of the max drawdown (equal to days only for daily curves).
+- Premium spend is **gross**: the sum of absolute premium/commission event values; refunds never offset it.
+- Drawdown reduction = `abs(baseline_dd) − abs(hedged_dd)` (positive is better).
+- Tail efficiency = drawdown reduction ÷ total gross premium spend (fraction of drawdown per currency unit spent); defined for the hedged run against a baseline, `0` when no premium was spent.
+- Fold utility = `ΔCAGR + 0.25 × drawdown reduction` (matches the default score above).
+
 ## 11. Multiple-testing and robustness evidence
 
 The system records every experiment, enabling later calculation/reporting of research breadth. MVP should implement:
