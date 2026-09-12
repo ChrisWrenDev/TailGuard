@@ -97,7 +97,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 10.
 
 ### TASK-011 — Historical execution-cost/fill model
-**Status:** pending  
+**Status:** completed  
 **Description:** Bid/ask-based base and stress fill models; quote tradability rules; commissions hook.  
 **Requirements:** FR-004, FR-011.  
 **Dependencies:** TASK-010.  
