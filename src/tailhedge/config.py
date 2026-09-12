@@ -48,6 +48,10 @@ class Secrets(BaseSettings):
         default=None,
         description="API key for notification provider.",
     )
+    session_secret: SecretStr = Field(
+        default=SecretStr("dev-only-session-secret-replace-in-production"),
+        description="Secret key for signing session cookies.",
+    )
 
     def mask_all(self) -> dict[str, str]:
         """Return a safe-to-log snapshot with every secret masked."""
@@ -128,6 +132,20 @@ class Settings(BaseSettings):
     max_single_premium_pct: float = Field(
         default=0.01,
         description="Maximum single-trade premium as fraction of equity.",
+    )
+
+    # --- session ---
+    session_cookie_secure: bool = Field(
+        default=False,
+        description="Set Secure flag on session cookie (True when TLS enabled).",
+    )
+    session_cookie_samesite: str = Field(
+        default="strict",
+        description="SameSite policy for session cookie.",
+    )
+    session_max_age_seconds: int = Field(
+        default=86400,
+        description="Session lifetime in seconds (default 24h).",
     )
 
     @model_validator(mode="after")
