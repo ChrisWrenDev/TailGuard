@@ -1,5 +1,7 @@
 # Licensed data — never commit user-owned market data
 data/
+# Exception: source code data module
+!src/tailhedge/data/
 
 # Secrets and environment files
 .env
