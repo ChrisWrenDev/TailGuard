@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, or_, select, update
 
 from tailhedge.persistence.models import Job, JobAttempt
 
@@ -27,6 +27,45 @@ class JobLeaseExpiredError(Exception):
     """Raised when a job lease has expired."""
 
 
+def _close_dangling_attempts(
+    session: Session,
+    job_ids: list[uuid.UUID],
+    now: datetime,
+) -> None:
+    """Close RUNNING attempts that belong to jobs no longer being processed."""
+    if not job_ids:
+        return
+    session.execute(
+        update(JobAttempt)
+        .where(
+            JobAttempt.job_id.in_(job_ids),
+            JobAttempt.status == "RUNNING",
+            JobAttempt.ended_at.is_(None),
+        )
+        .values(ended_at=now, status="INTERRUPTED")
+    )
+
+
+def _fail_exhausted_expired_leases(session: Session, now: datetime) -> list[uuid.UUID]:
+    """Mark LEASED jobs with expired leases and no attempts left as FAILED."""
+    stmt = (
+        update(Job)
+        .where(
+            Job.status == "LEASED",
+            Job.lease_expires_at.isnot(None),
+            Job.lease_expires_at < now,
+            Job.attempts >= Job.max_attempts,
+        )
+        .values(status="FAILED", lease_owner=None, lease_expires_at=None)
+        .returning(Job.id)
+    )
+    exhausted_ids = list(session.execute(stmt).scalars().all())
+    if exhausted_ids:
+        _close_dangling_attempts(session, exhausted_ids, now)
+        session.commit()
+    return exhausted_ids
+
+
 def claim_job(
     session: Session,
     worker_id: str,
@@ -34,6 +73,10 @@ def claim_job(
     lease_seconds: int = 300,
 ) -> Job:
     """Claim the next available job for processing.
+
+    Claimable jobs are PENDING (with no future ``run_after``) or LEASED
+    with an expired lease. Jobs with an expired lease and no attempts
+    remaining are marked FAILED instead of being re-claimed.
 
     Args:
         session: Database session
@@ -48,12 +91,21 @@ def claim_job(
         JobClaimError: If no jobs are available to claim
     """
     now = datetime.now(UTC)
+    _fail_exhausted_expired_leases(session, now)
 
-    # Build query for claimable jobs
-    conditions = [
-        Job.status == "PENDING",
-        (Job.lease_expires_at.is_(None)) | (Job.lease_expires_at < now),
-    ]
+    claimable = or_(
+        and_(
+            Job.status == "PENDING",
+            or_(Job.run_after.is_(None), Job.run_after <= now),
+        ),
+        and_(
+            Job.status == "LEASED",
+            Job.lease_expires_at.isnot(None),
+            Job.lease_expires_at < now,
+            Job.attempts < Job.max_attempts,
+        ),
+    )
+    conditions = [claimable]
     if job_type:
         conditions.append(Job.type == job_type)
 
@@ -70,12 +122,17 @@ def claim_job(
     if job is None:
         raise JobClaimError("No jobs available to claim")
 
+    was_leased = job.status == "LEASED"
+
     # Claim the job
     lease_expires_at = now + timedelta(seconds=lease_seconds)
     job.status = "LEASED"
     job.lease_owner = worker_id
     job.lease_expires_at = lease_expires_at
     job.attempts += 1
+
+    if was_leased:
+        _close_dangling_attempts(session, [job.id], now)
 
     # Create a job attempt record
     attempt = JobAttempt(
@@ -108,7 +165,7 @@ def heartbeat_job(
         JobNotFoundError: If job doesn't exist
         JobLeaseExpiredError: If lease already expired or owned by another worker
     """
-    stmt = select(Job).where(Job.id == job_id)
+    stmt = select(Job).where(Job.id == job_id).with_for_update()
     job = session.execute(stmt).scalar_one_or_none()
     if job is None:
         raise JobNotFoundError(f"Job {job_id} not found")
@@ -148,7 +205,7 @@ def complete_job(
         JobNotFoundError: If job doesn't exist
         JobLeaseExpiredError: If worker doesn't own the lease
     """
-    stmt = select(Job).where(Job.id == job_id)
+    stmt = select(Job).where(Job.id == job_id).with_for_update()
     job = session.execute(stmt).scalar_one_or_none()
     if job is None:
         raise JobNotFoundError(f"Job {job_id} not found")
@@ -209,35 +266,44 @@ def recover_expired_leases(
 ) -> list[uuid.UUID]:
     """Recover jobs with expired leases.
 
+    Jobs with attempts remaining are reset to PENDING; jobs with no
+    attempts remaining are marked FAILED. Dangling RUNNING attempt
+    records are closed as INTERRUPTED.
+
     Args:
         session: Database session
         worker_id: Optional filter by worker ID
 
     Returns:
-        List of recovered job IDs
+        List of recovered (PENDING) job IDs
     """
     now = datetime.now(UTC)
 
     conditions = [
         Job.status == "LEASED",
+        Job.lease_expires_at.isnot(None),
         Job.lease_expires_at < now,
     ]
     if worker_id:
         conditions.append(Job.lease_owner == worker_id)
 
-    stmt = (
+    failed_stmt = (
         update(Job)
-        .where(and_(*conditions))
-        .values(
-            status="PENDING",
-            lease_owner=None,
-            lease_expires_at=None,
-        )
+        .where(and_(*conditions), Job.attempts >= Job.max_attempts)
+        .values(status="FAILED", lease_owner=None, lease_expires_at=None)
         .returning(Job.id)
     )
+    failed_ids = list(session.execute(failed_stmt).scalars().all())
 
-    result = session.execute(stmt)
-    recovered_ids = [row[0] for row in result]
+    recover_stmt = (
+        update(Job)
+        .where(and_(*conditions), Job.attempts < Job.max_attempts)
+        .values(status="PENDING", lease_owner=None, lease_expires_at=None)
+        .returning(Job.id)
+    )
+    recovered_ids = list(session.execute(recover_stmt).scalars().all())
+
+    _close_dangling_attempts(session, failed_ids + recovered_ids, now)
     session.commit()
 
     return recovered_ids

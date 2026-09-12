@@ -13,8 +13,9 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Uuid,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -38,9 +39,7 @@ def _uuid() -> uuid.UUID:
 class AppUser(Base):
     __tablename__ = "app_user"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     username: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False, default="OWNER")
@@ -61,9 +60,7 @@ class AppUser(Base):
 class Portfolio(Base):
     __tablename__ = "portfolio"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     base_currency: Mapped[str] = mapped_column(String(3), nullable=False, default="GBP")
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="ACTIVE")
@@ -90,11 +87,9 @@ class HoldingDefinition(Base):
         ),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     portfolio_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("portfolio.id"), nullable=False
+        Uuid, ForeignKey("portfolio.id"), nullable=False
     )
     instrument_key: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -127,9 +122,7 @@ class HoldingDefinition(Base):
 class Job(Base):
     __tablename__ = "job"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     type: Mapped[str] = mapped_column(String(100), nullable=False)
     payload_json: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     unique_key: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
@@ -156,12 +149,15 @@ class Job(Base):
 
 class JobAttempt(Base):
     __tablename__ = "job_attempt"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
+    __table_args__ = (
+        UniqueConstraint("job_id", "attempt_no", name="uq_job_attempt_job_no"),
     )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     job_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("job.id"), nullable=False
+        Uuid,
+        ForeignKey("job.id", ondelete="CASCADE"),
+        nullable=False,
     )
     attempt_no: Mapped[int] = mapped_column(Integer, nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(
@@ -185,9 +181,7 @@ class JobAttempt(Base):
 class AuditEvent(Base):
     __tablename__ = "audit_event"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
     occurred_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -197,9 +191,7 @@ class AuditEvent(Base):
     severity: Mapped[str] = mapped_column(String(50), nullable=False)
     correlation_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     entity_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    entity_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True
-    )
+    entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     details_redacted_json: Mapped[dict[str, object] | None] = mapped_column(
         JSONB, nullable=True

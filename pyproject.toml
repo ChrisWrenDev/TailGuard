@@ -43,6 +43,7 @@ ibkr = [
 
 [project.scripts]
 tailhedge = "tailhedge.cli:main"
+tailhedge-worker = "tailhedge.worker.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tailhedge"]

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 
+from tailhedge.persistence.engine import get_session_factory
 from tailhedge.worker.worker import Worker
 
 
@@ -22,6 +24,11 @@ def main(argv: list[str] | None = None) -> int:
     Returns:
         Exit code
     """
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+
     parser = argparse.ArgumentParser(
         prog="tailhedge-worker",
         description="TailHedge job worker",
@@ -77,6 +84,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.dummy:
         worker.register_handler("DUMMY", dummy_handler)
 
+    if not worker.job_handlers:
+        parser.error(
+            "No handlers registered. Use --dummy or register handlers programmatically."
+        )
+
     for job_type in args.job_type:
         if job_type not in worker.job_handlers:
             print(
@@ -85,10 +97,17 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-    # TODO: Import and use real database session factory
-    print("Worker CLI stub - database connection not yet implemented")
-    print(f"Worker ID: {worker.worker_id}")
-    print(f"Registered handlers: {list(worker.job_handlers.keys())}")
+    try:
+        session_factory = get_session_factory()
+    except Exception as e:
+        print(f"Error: Failed to configure database connection: {e}", file=sys.stderr)
+        return 1
+
+    try:
+        worker.run(session_factory)
+    except Exception as e:
+        print(f"Error: Worker failed: {e}", file=sys.stderr)
+        return 1
 
     return 0
 

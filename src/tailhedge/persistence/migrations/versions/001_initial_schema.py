@@ -149,7 +149,7 @@ def upgrade() -> None:
         sa.Column(
             "job_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("job.id"),
+            sa.ForeignKey("job.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column("attempt_no", sa.Integer, nullable=False),
@@ -158,6 +158,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(50), nullable=False, server_default="RUNNING"),
         sa.Column("error_code", sa.String(100), nullable=True),
         sa.Column("error_detail_redacted", sa.Text, nullable=True),
+        sa.UniqueConstraint("job_id", "attempt_no", name="uq_job_attempt_job_no"),
     )
 
     # audit_event
