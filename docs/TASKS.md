@@ -88,7 +88,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 9.
 
 ### TASK-010 — Backtest accounting ledger
-**Status:** pending  
+**Status:** completed  
 **Description:** Implement core portfolio units/cash, long-put positions, expiry settlement, premium/cost flows, explicit currencies.  
 **Requirements:** FR-004.  
 **Dependencies:** TASK-008, TASK-009.  
