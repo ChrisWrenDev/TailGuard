@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Campaigns — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Research</h1>
+
+    <nav class="sub-navigation" aria-label="Research sub-navigation">
+        <ul class="sub-navigation__list">
+            <li class="sub-navigation__item">
+                <a href="/research/campaigns" class="sub-navigation__link sub-navigation__link--active"
+                   aria-current="page">Campaigns</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/research/experiments" class="sub-navigation__link">Experiments</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/research/releases" class="sub-navigation__link">Candidates / Releases</a>
+            </li>
+        </ul>
+    </nav>
+
+    <section class="card" aria-labelledby="campaigns">
+        <h2 id="campaigns" class="card__title">Campaigns</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">No research campaigns yet.</p>
+            <p class="empty-state__actions">
+                <a href="/research/campaigns/new" class="button button--primary">Create Campaign</a>
+            </p>
+        </div>
+    </section>
+</div>
+{% endblock %}

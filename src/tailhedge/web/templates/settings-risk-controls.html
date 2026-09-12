@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}Risk Controls — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Settings</h1>
+
+    <nav class="sub-navigation" aria-label="Settings sub-navigation">
+        <ul class="sub-navigation__list">
+            <li class="sub-navigation__item">
+                <a href="/settings/risk-controls" class="sub-navigation__link sub-navigation__link--active"
+                   aria-current="page">Risk Controls</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/settings/schedule" class="sub-navigation__link">Schedule</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/settings/integrations" class="sub-navigation__link">Integrations</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/settings/notifications" class="sub-navigation__link">Notifications</a>
+            </li>
+        </ul>
+    </nav>
+
+    <section class="card" aria-labelledby="risk-controls">
+        <h2 id="risk-controls" class="card__title">Risk Controls</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">Risk control configuration will be available here.</p>
+        </div>
+    </section>
+</div>
+{% endblock %}

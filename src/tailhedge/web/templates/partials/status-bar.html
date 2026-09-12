@@ -1,0 +1,24 @@
+<header class="status-bar" role="banner">
+    <div class="status-bar__brand">
+        <a href="/" class="status-bar__logo">TailHedge</a>
+    </div>
+    <div class="status-bar__status" aria-label="System status">
+        <span class="status-indicator" role="status" aria-label="Mode: {{ mode|default('RESEARCH_ONLY') }}">
+            <span class="status-indicator__dot status-indicator__dot--active" aria-hidden="true"></span>
+            Mode: {{ mode|default('RESEARCH_ONLY') }}
+        </span>
+        <span class="status-indicator" role="status" aria-label="Broker: {{ broker_status|default('Not connected') }}">
+            <span class="status-indicator__dot status-indicator__dot--inactive" aria-hidden="true"></span>
+            Broker: {{ broker_status|default('Not connected') }}
+        </span>
+        <span class="status-indicator" role="status" aria-label="Kill switch: {{ kill_switch|default('Disengaged') }}">
+            <span class="status-indicator__dot status-indicator__dot--inactive" aria-hidden="true"></span>
+            Kill Switch: {{ kill_switch|default('Disengaged') }}
+        </span>
+    </div>
+    <div class="status-bar__user">
+        <form method="post" action="/auth/logout" class="inline-form">
+            <button type="submit" class="link-button">Logout</button>
+        </form>
+    </div>
+</header>

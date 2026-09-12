@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Dashboard</h1>
+
+    <section class="card" aria-labelledby="dashboard-empty">
+        <h2 id="dashboard-empty" class="card__title">Welcome to TailHedge</h2>
+        <p class="card__text">
+            Your research and execution console for systematic long-put tail-risk hedging.
+        </p>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">
+                No portfolio or dataset configured yet.
+            </p>
+            <p class="empty-state__actions">
+                <a href="/portfolio" class="button button--primary">Set up Portfolio</a>
+                <a href="/data" class="button button--secondary">Import Data</a>
+            </p>
+        </div>
+    </section>
+
+    <div class="card-grid">
+        <section class="card" aria-labelledby="hedge-summary">
+            <h2 id="hedge-summary" class="card__title">Hedge Summary</h2>
+            <div class="empty-state" role="status">
+                <p class="empty-state__text">No hedge positions yet.</p>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="latest-decision">
+            <h2 id="latest-decision" class="card__title">Latest Daily Decision</h2>
+            <div class="empty-state" role="status">
+                <p class="empty-state__text">No decisions recorded.</p>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="research-evidence">
+            <h2 id="research-evidence" class="card__title">Research Evidence</h2>
+            <div class="empty-state" role="status">
+                <p class="empty-state__text">No research campaigns or releases.</p>
+            </div>
+        </section>
+
+        <section class="card" aria-labelledby="alerts">
+            <h2 id="alerts" class="card__title">Alerts</h2>
+            <div class="empty-state" role="status">
+                <p class="empty-state__text">No active alerts.</p>
+            </div>
+        </section>
+    </div>
+</div>
+{% endblock %}

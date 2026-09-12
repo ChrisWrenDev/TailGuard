@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}Schedule — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Settings</h1>
+
+    <nav class="sub-navigation" aria-label="Settings sub-navigation">
+        <ul class="sub-navigation__list">
+            <li class="sub-navigation__item">
+                <a href="/settings/risk-controls" class="sub-navigation__link">Risk Controls</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/settings/schedule" class="sub-navigation__link sub-navigation__link--active"
+                   aria-current="page">Schedule</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/settings/integrations" class="sub-navigation__link">Integrations</a>
+            </li>
+            <li class="sub-navigation__item">
+                <a href="/settings/notifications" class="sub-navigation__link">Notifications</a>
+            </li>
+        </ul>
+    </nav>
+
+    <section class="card" aria-labelledby="schedule">
+        <h2 id="schedule" class="card__title">Decision Schedule</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">
+                Schedule configuration will be available here. Default: 15:45 America/New_York.
+            </p>
+        </div>
+    </section>
+</div>
+{% endblock %}

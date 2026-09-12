@@ -1,0 +1,46 @@
+<nav class="navigation" role="navigation" aria-label="Primary navigation">
+    <ul class="navigation__list">
+        <li class="navigation__item">
+            <a href="/" class="navigation__link {% if active_page == 'dashboard' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'dashboard' %}page{% else %}false{% endif %}">
+                Dashboard
+            </a>
+        </li>
+        <li class="navigation__item">
+            <a href="/portfolio" class="navigation__link {% if active_page == 'portfolio' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'portfolio' %}page{% else %}false{% endif %}">
+                Portfolio
+            </a>
+        </li>
+        <li class="navigation__item">
+            <a href="/research/campaigns" class="navigation__link {% if active_page == 'research' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'research' %}page{% else %}false{% endif %}">
+                Research
+            </a>
+        </li>
+        <li class="navigation__item">
+            <a href="/operations/daily-runs" class="navigation__link {% if active_page == 'operations' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'operations' %}page{% else %}false{% endif %}">
+                Operations
+            </a>
+        </li>
+        <li class="navigation__item">
+            <a href="/data" class="navigation__link {% if active_page == 'data' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'data' %}page{% else %}false{% endif %}">
+                Data
+            </a>
+        </li>
+        <li class="navigation__item">
+            <a href="/audit-log" class="navigation__link {% if active_page == 'audit-log' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'audit-log' %}page{% else %}false{% endif %}">
+                Audit Log
+            </a>
+        </li>
+        <li class="navigation__item">
+            <a href="/settings" class="navigation__link {% if active_page == 'settings' %}navigation__link--active{% endif %}"
+               aria-current="{% if active_page == 'settings' %}page{% else %}false{% endif %}">
+                Settings
+            </a>
+        </li>
+    </ul>
+</nav>

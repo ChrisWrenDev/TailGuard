@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Log — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Audit Log</h1>
+
+    <section class="card" aria-labelledby="audit-log">
+        <h2 id="audit-log" class="card__title">Material Events</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">No audit events recorded.</p>
+        </div>
+    </section>
+</div>
+{% endblock %}

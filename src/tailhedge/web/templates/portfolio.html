@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Portfolio — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Portfolio</h1>
+
+    <section class="card" aria-labelledby="portfolio-summary">
+        <h2 id="portfolio-summary" class="card__title">Portfolio Summary</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">
+                No portfolio configured. Add holdings or connect a broker to get started.
+            </p>
+            <p class="empty-state__actions">
+                <a href="/portfolio/holdings/new" class="button button--primary">Add Holding</a>
+            </p>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="holdings">
+        <h2 id="holdings" class="card__title">Holdings</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">No holdings defined.</p>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="cash-balances">
+        <h2 id="cash-balances" class="card__title">Cash Balances</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">No cash balance information available.</p>
+        </div>
+    </section>
+</div>
+{% endblock %}

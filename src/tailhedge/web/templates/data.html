@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Data — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Data</h1>
+
+    <section class="card" aria-labelledby="datasets">
+        <h2 id="datasets" class="card__title">Research Datasets</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">
+                No datasets imported. Import CSV or Parquet files to begin research.
+            </p>
+            <p class="empty-state__actions">
+                <a href="/data/import" class="button button--primary">Import Dataset</a>
+            </p>
+        </div>
+    </section>
+</div>
+{% endblock %}
