@@ -420,3 +420,63 @@ async def api_example(
     session_id: Annotated[str, Depends(require_csrf)],
 ) -> dict[str, str]:
     return {"status": "csrf_validated", "session": session_id}
+
+
+# ---------------------------------------------------------------------------
+# Dataset import API
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/v1/datasets/import")
+async def api_dataset_import(
+    request: Request,
+    session_id: Annotated[str, Depends(require_csrf)],
+    db: SessionDep,
+    name: str = Form(...),
+    source_vendor: str = Form(...),
+    source_paths: str = Form(...),
+    source_role: str = Form("OPTION_CHAIN"),
+    timezone: str = Form("America/New_York"),
+) -> HTMLResponse:
+    """Trigger a dataset import job.
+
+    Accepts form data with the dataset name, vendor, comma-separated
+    file paths, source role, and timezone. Enqueues a background import
+    job and redirects to the data page.
+    """
+    from pathlib import Path
+
+    from tailhedge.worker.job_queue import enqueue_job
+
+    paths_list = [p.strip() for p in source_paths.split(",") if p.strip()]
+
+    settings = _get_settings()
+    job = enqueue_job(
+        db,
+        job_type="dataset_import",
+        payload={
+            "name": name,
+            "source_vendor": source_vendor,
+            "source_paths": paths_list,
+            "source_role": source_role,
+            "timezone": timezone,
+            "dataset_root": settings.dataset_root,
+        },
+    )
+
+    logger.info(
+        "Dataset import job enqueued: job_id=%s name=%s",
+        job.id,
+        name,
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "data.html",
+        _page_context(
+            request,
+            "data",
+            import_message=f"Import job {job.id} queued.",
+            csrf_token=generate_csrf_token(session_id),
+        ),
+    )

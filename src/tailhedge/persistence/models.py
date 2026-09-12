@@ -196,3 +196,84 @@ class AuditEvent(Base):
     details_redacted_json: Mapped[dict[str, object] | None] = mapped_column(
         JSONB, nullable=True
     )
+
+
+# ---------------------------------------------------------------------------
+# research_dataset — imported historical dataset metadata
+# ---------------------------------------------------------------------------
+
+
+class ResearchDataset(Base):
+    __tablename__ = "research_dataset"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_vendor: Mapped[str] = mapped_column(String(100), nullable=False)
+    schema_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(100), nullable=False)
+    default_snapshot_time: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    start_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    end_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    row_count: Mapped[int] = mapped_column(nullable=False, default=0)
+    manifest_sha256: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True
+    )
+    storage_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="INGESTING")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    dataset_files: Mapped[list[DatasetFile]] = relationship(back_populates="dataset")
+    validation_results: Mapped[list[DatasetValidationResult]] = relationship(
+        back_populates="dataset"
+    )
+
+
+# ---------------------------------------------------------------------------
+# dataset_file — per-file hash and metadata within a dataset
+# ---------------------------------------------------------------------------
+
+
+class DatasetFile(Base):
+    __tablename__ = "dataset_file"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "relative_path", name="uq_dataset_file_path"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("research_dataset.id"), nullable=False
+    )
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    byte_size: Mapped[int] = mapped_column(nullable=False)
+    row_count: Mapped[int | None] = mapped_column(nullable=True)
+    source_role: Mapped[str] = mapped_column(String(50), nullable=False)
+
+    dataset: Mapped[ResearchDataset] = relationship(back_populates="dataset_files")
+
+
+# ---------------------------------------------------------------------------
+# dataset_validation_result — validation checks for an imported dataset
+# ---------------------------------------------------------------------------
+
+
+class DatasetValidationResult(Base):
+    __tablename__ = "dataset_validation_result"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("research_dataset.id"), nullable=False
+    )
+    validator_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    summary_json: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    report_artifact_uri: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    dataset: Mapped[ResearchDataset] = relationship(back_populates="validation_results")
