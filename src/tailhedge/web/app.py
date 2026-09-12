@@ -349,6 +349,16 @@ async def settings_notifications(
     )
 
 
+@app.get("/research/backtest", response_class=HTMLResponse)
+async def research_backtest(
+    request: Request,
+    _session_id: Annotated[str, Depends(require_auth)],
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request, "research-backtest.html", _page_context(request, "research")
+    )
+
+
 # ---------------------------------------------------------------------------
 # Protected API routes
 # ---------------------------------------------------------------------------
@@ -359,6 +369,44 @@ async def api_status(
     session_id: Annotated[str, Depends(require_auth)],
 ) -> dict[str, str]:
     return {"status": "authenticated", "session": session_id}
+
+
+@app.get("/api/v1/backtest/synthetic")
+async def api_backtest_synthetic(
+    _session_id: Annotated[str, Depends(require_auth)],
+) -> dict[str, object]:
+    """Return synthetic backtest results for demonstration."""
+    return {
+        "status": "success",
+        "hedged": {
+            "cagr": 0.085,
+            "max_drawdown": -0.12,
+            "max_drawdown_duration_days": 45,
+            "total_premium_spent": 15000.0,
+            "annualised_premium_spent": 1500.0,
+            "premium_spend_ratio": 0.015,
+            "final_value": 185000.0,
+            "initial_value": 100000.0,
+            "total_return": 0.85,
+        },
+        "unhedged": {
+            "cagr": 0.072,
+            "max_drawdown": -0.28,
+            "max_drawdown_duration_days": 120,
+            "total_premium_spent": 0.0,
+            "annualised_premium_spent": 0.0,
+            "premium_spend_ratio": 0.0,
+            "final_value": 172000.0,
+            "initial_value": 100000.0,
+            "total_return": 0.72,
+        },
+        "comparison": {
+            "cagr_delta": 0.013,
+            "drawdown_improvement": 0.16,
+            "fold_utility": 0.053,
+            "tail_efficiency": 0.000107,
+        },
+    }
 
 
 @app.post("/api/v1/example")

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}Backtest Results — TailHedge{% endblock %}
+
+{% block content %}
+<div class="page">
+    <h1 class="page__title">Backtest Results</h1>
+
+    <section class="card" aria-labelledby="backtest-empty">
+        <h2 id="backtest-empty" class="card__title">Synthetic Backtest</h2>
+        <p class="card__text">
+            View backtest results and compare candidate strategies against baselines.
+        </p>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">
+                No backtest results yet. Run a backtest to see results here.
+            </p>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="metrics-summary">
+        <h2 id="metrics-summary" class="card__title">Key Metrics</h2>
+        <div class="metrics-table" role="region" aria-label="Backtest metrics">
+            <table class="table" aria-describedby="metrics-summary">
+                <thead>
+                    <tr>
+                        <th scope="col">Metric</th>
+                        <th scope="col">Hedged</th>
+                        <th scope="col">No Hedge</th>
+                        <th scope="col">Delta</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>CAGR</td>
+                        <td id="hedged-cagr">—</td>
+                        <td id="unhedged-cagr">—</td>
+                        <td id="cagr-delta">—</td>
+                    </tr>
+                    <tr>
+                        <td>Max Drawdown</td>
+                        <td id="hedged-drawdown">—</td>
+                        <td id="unhedged-drawdown">—</td>
+                        <td id="drawdown-improvement">—</td>
+                    </tr>
+                    <tr>
+                        <td>Premium Spend (Annualised)</td>
+                        <td id="premium-spend">—</td>
+                        <td>—</td>
+                        <td>—</td>
+                    </tr>
+                    <tr>
+                        <td>Tail Efficiency</td>
+                        <td id="tail-efficiency">—</td>
+                        <td>—</td>
+                        <td>—</td>
+                    </tr>
+                    <tr>
+                        <td>Fold Utility</td>
+                        <td id="fold-utility" colspan="3">—</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="card" aria-labelledby="baseline-comparison">
+        <h2 id="baseline-comparison" class="card__title">Baseline Comparison</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">
+                No baseline comparison data available.
+            </p>
+        </div>
+    </section>
+</div>
+{% endblock %}

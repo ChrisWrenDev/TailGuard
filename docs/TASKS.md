@@ -124,7 +124,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 13.
 
 ### TASK-014 — Minimal research result UI
-**Status:** pending  
+**Status:** completed  
 **Description:** Display a synthetic baseline/backtest result and numerical evidence tables.  
 **Requirements:** FR-020.  
 **Dependencies:** TASK-006, TASK-013.  

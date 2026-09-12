@@ -414,3 +414,72 @@ class TestLogoutButton:
         assert resp.status_code == 200
         assert 'action="/auth/logout"' in resp.text
         assert "Logout" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Backtest page (TASK-014)
+# ---------------------------------------------------------------------------
+
+
+class TestBacktestPage:
+    """Tests for the backtest results page."""
+
+    def test_backtest_page_renders(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/research/backtest")
+        assert resp.status_code == 200
+        assert "Backtest Results" in resp.text
+
+    def test_backtest_page_has_metrics_table(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/research/backtest")
+        assert resp.status_code == 200
+        assert "Key Metrics" in resp.text
+        assert "CAGR" in resp.text
+        assert "Max Drawdown" in resp.text
+        assert "Premium Spend" in resp.text
+
+    def test_backtest_page_has_baseline_comparison(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/research/backtest")
+        assert resp.status_code == 200
+        assert "Baseline Comparison" in resp.text
+
+    def test_backtest_page_requires_auth(self) -> None:
+        resp = _unauth_client().get("/research/backtest")
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/auth/login"
+
+
+# ---------------------------------------------------------------------------
+# Backtest API (TASK-014)
+# ---------------------------------------------------------------------------
+
+
+class TestBacktestAPI:
+    """Tests for the backtest API endpoint."""
+
+    def test_synthetic_backtest_api_requires_auth(self) -> None:
+        resp = _unauth_client().get("/api/v1/backtest/synthetic")
+        assert resp.status_code == 303
+
+    def test_synthetic_backtest_api_returns_data(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/api/v1/backtest/synthetic")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "success"
+        assert "hedged" in data
+        assert "unhedged" in data
+        assert "comparison" in data
+
+    def test_synthetic_backtest_api_has_metrics(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/api/v1/backtest/synthetic")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "cagr" in data["hedged"]
+        assert "max_drawdown" in data["hedged"]
+        assert "total_premium_spent" in data["hedged"]
+        assert "cagr_delta" in data["comparison"]
+        assert "drawdown_improvement" in data["comparison"]
