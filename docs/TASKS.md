@@ -79,7 +79,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 8.
 
 ### TASK-009 — Portfolio proxy and hedge exposure model
-**Status:** pending  
+**Status:** completed  
 **Description:** Implement holding definitions, benchmark mapping, beta exposure, base-currency calculation interfaces.  
 **Requirements:** FR-001.  
 **Dependencies:** TASK-003.  
