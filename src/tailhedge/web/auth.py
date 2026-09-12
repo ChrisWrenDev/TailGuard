@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import hashlib
 import hmac
 import secrets
@@ -34,10 +36,27 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+@functools.lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    """Return a cached Argon2id hash used to equalise timing on unknown users."""
+    return _ph.hash("timing-equalisation-dummy-password")
+
+
+def verify_password_constant_time(password: str, password_hash: str | None) -> bool:
+    """Verify a password, running a dummy verification when the user is unknown.
+
+    This prevents user enumeration via response-time differences.
+    """
+    if password_hash is None:
+        with contextlib.suppress(VerifyMismatchError):
+            _ph.verify(_dummy_password_hash(), password)
+        return False
+    return verify_password(password, password_hash)
+
+
 # ---------------------------------------------------------------------------
 # Session management (signed cookie-based)
 # ---------------------------------------------------------------------------
-
 _SESSION_COOKIE = "tailhedge_session"
 _CSRF_HEADER = "x-csrf-token"
 
@@ -54,12 +73,11 @@ def _sign_session(session_id: str, expires_at: int) -> str:
     return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
 
 
-def create_session_cookie(session_id: str, max_age: int) -> tuple[str, str]:
-    """Return (cookie_value, set-cookie-header) for a new session."""
+def create_session_cookie(session_id: str, max_age: int) -> str:
+    """Return the signed cookie value for a new session."""
     expires_at = int(time.time() + max_age)
     sig = _sign_session(session_id, expires_at)
-    value = f"{session_id}:{expires_at}:{sig}"
-    return session_id, value
+    return f"{session_id}:{expires_at}:{sig}"
 
 
 def _parse_session_value(value: str) -> tuple[str, float, str] | None:
@@ -100,21 +118,25 @@ def generate_session_id() -> str:
 # ---------------------------------------------------------------------------
 
 
-def generate_csrf_token(session_id: str) -> str:
-    """Generate a CSRF token bound to the session."""
+def generate_csrf_token(scope: str) -> str:
+    """Generate a CSRF token bound to a scope.
+
+    The scope is the session ID for authenticated requests, or a fixed
+    literal (e.g. ``"login"``) for pre-authentication forms.
+    """
     secret = _get_session_secret()
-    payload = f"csrf:{session_id}:{int(time.time())}"
+    bucket = int(time.time()) // 3600
+    payload = f"csrf:{scope}:{bucket}"
     return hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def validate_csrf_token(session_id: str, token: str) -> bool:
-    """Validate a CSRF token (allows 1-hour window)."""
+def validate_csrf_token(scope: str, token: str) -> bool:
+    """Validate a CSRF token (tokens rotate hourly; one previous hour is accepted)."""
     secret = _get_session_secret()
-    now = int(time.time())
-    # Check current and previous hour to avoid edge issues
+    current_bucket = int(time.time()) // 3600
+    # Check current and previous bucket so tokens stay valid across hour edges
     for offset in (0, 1):
-        ts = now - offset * 3600
-        payload = f"csrf:{session_id}:{ts}"
+        payload = f"csrf:{scope}:{current_bucket - offset}"
         expected = hmac.new(
             secret.encode(), payload.encode(), hashlib.sha256
         ).hexdigest()[:32]

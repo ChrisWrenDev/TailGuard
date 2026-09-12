@@ -20,6 +20,8 @@ class Mode(StrEnum):
 
 _LIVE_MODES = frozenset({Mode.LIVE_APPROVAL, Mode.LIVE_AUTONOMOUS})
 
+DEFAULT_SESSION_SECRET = "dev-only-session-secret-replace-in-production"
+
 
 class Secrets(BaseSettings):
     """Secret values loaded from environment only. Never serialised or logged."""
@@ -49,7 +51,7 @@ class Secrets(BaseSettings):
         description="API key for notification provider.",
     )
     session_secret: SecretStr = Field(
-        default=SecretStr("dev-only-session-secret-replace-in-production"),
+        default=SecretStr(DEFAULT_SESSION_SECRET),
         description="Secret key for signing session cookies.",
     )
 

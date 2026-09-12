@@ -31,6 +31,12 @@ def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "TAILHEDGE_SANDBOX_PID_MAX",
         "TAILHEDGE_MAX_ANNUAL_PREMIUM_PCT",
         "TAILHEDGE_MAX_SINGLE_PREMIUM_PCT",
+        "TAILHEDGE_SECRET_DATABASE_URL",
+        "TAILHEDGE_SECRET_SESSION_SECRET",
+        "TAILHEDGE_SECRET_IBKR_PASSWORD",
+        "TAILHEDGE_SECRET_IBKR_ACCOUNT",
+        "TAILHEDGE_SECRET_AGENT_API_KEY",
+        "TAILHEDGE_SECRET_NOTIFICATION_API_KEY",
     ):
         monkeypatch.delenv(key, raising=False)
 

@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
-from fastapi import Depends, FastAPI, Form, Request, status
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from sqlalchemy import select, text
+from sqlalchemy.orm import Session
 
-from tailhedge.config import Settings
+from tailhedge.config import DEFAULT_SESSION_SECRET, Mode, Secrets, Settings
+from tailhedge.persistence.engine import get_engine, get_session
+from tailhedge.persistence.models import AppUser
 from tailhedge.web.auth import (
     _SESSION_COOKIE,
     create_session_cookie,
@@ -18,14 +24,45 @@ from tailhedge.web.auth import (
     generate_session_id,
     require_auth,
     require_csrf,
+    validate_csrf_token,
+    verify_password_constant_time,
 )
 
-app = FastAPI(title="TailHedge", version="0.1.0")
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+logger = logging.getLogger(__name__)
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 _STATIC_DIR = Path(__file__).parent / "static"
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+_LOGIN_CSRF_SCOPE = "login"
+
+SessionDep = Annotated[Session, Depends(get_session)]
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Fail closed when a real deployment runs with development defaults."""
+    settings = Settings()
+    secrets = Secrets()
+    if secrets.session_secret.get_secret_value() == DEFAULT_SESSION_SECRET:
+        if settings.mode != Mode.RESEARCH_ONLY:
+            msg = (
+                "TAILHEDGE_SECRET_SESSION_SECRET must be set when mode is not "
+                "RESEARCH_ONLY; refusing to start with the development default."
+            )
+            raise RuntimeError(msg)
+        logger.warning(
+            "Using the development default session secret; set "
+            "TAILHEDGE_SECRET_SESSION_SECRET before leaving RESEARCH_ONLY."
+        )
+    yield
+
+
+app = FastAPI(title="TailHedge", version="0.1.0", lifespan=lifespan)
 
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
@@ -44,9 +81,23 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+def check_database_ready() -> None:
+    """Verify the database accepts connections; raise 503 otherwise."""
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not ready.",
+        ) from e
+
+
 @app.get("/readyz")
-async def readyz() -> dict[str, str]:
-    # TODO: check database connectivity
+async def readyz(
+    _db_ready: Annotated[None, Depends(check_database_ready)],
+) -> dict[str, str]:
     return {"status": "ok"}
 
 
@@ -55,51 +106,63 @@ async def readyz() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def _login_response(
+    request: Request,
+    error: str,
+    status_code: int,
+) -> HTMLResponse:
+    context: dict[str, object] = {
+        "request": request,
+        "csrf_token": generate_csrf_token(_LOGIN_CSRF_SCOPE),
+        "error": error,
+    }
+    return templates.TemplateResponse(request, "login.html", context, status_code)
+
+
 @app.get("/auth/login", response_class=HTMLResponse)
 async def login_form(request: Request) -> HTMLResponse:
-    csrf_token = generate_csrf_token("login-form")
-    context = {
-        "request": request,
-        "csrf_token": csrf_token,
-        "error": None,
-    }
-    return templates.TemplateResponse(request, "login.html", context)
+    return _login_response(request, "", status.HTTP_200_OK)
 
 
 @app.post("/auth/login", response_model=None)
 async def login(
     request: Request,
+    db: SessionDep,
     username: str = Form(...),
     password: str = Form(...),
+    csrf_token: str = Form(""),
 ) -> RedirectResponse | HTMLResponse:
-    # TODO: look up user in database; for now reject all logins
-    # This will be wired up properly when database auth is complete.
+    if not validate_csrf_token(_LOGIN_CSRF_SCOPE, csrf_token):
+        return _login_response(
+            request,
+            "Invalid or missing CSRF token. Please try again.",
+            status.HTTP_403_FORBIDDEN,
+        )
+
     settings = _get_settings()
-
-    # For demonstration: accept owner/owner
-    if username == "owner" and password == "owner":
-        session_id = generate_session_id()
-        _, cookie_value = create_session_cookie(
-            session_id, settings.session_max_age_seconds
+    user = db.scalar(select(AppUser).where(AppUser.username == username))
+    password_ok = verify_password_constant_time(
+        password, user.password_hash if user is not None else None
+    )
+    if user is None or not password_ok or not user.is_active:
+        return _login_response(
+            request,
+            "Invalid username or password.",
+            status.HTTP_401_UNAUTHORIZED,
         )
-        response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-        response.set_cookie(
-            _SESSION_COOKIE,
-            cookie_value,
-            max_age=settings.session_max_age_seconds,
-            httponly=True,
-            samesite=str(settings.session_cookie_samesite),  # type: ignore[arg-type]
-            secure=settings.session_cookie_secure,
-        )
-        return response
 
-    csrf_token = generate_csrf_token("login-form")
-    context: dict[str, object] = {
-        "request": request,
-        "csrf_token": csrf_token,
-        "error": "Invalid username or password.",
-    }
-    return templates.TemplateResponse(request, "login.html", context, status_code=401)
+    session_id = generate_session_id()
+    cookie_value = create_session_cookie(session_id, settings.session_max_age_seconds)
+    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        _SESSION_COOKIE,
+        cookie_value,
+        max_age=settings.session_max_age_seconds,
+        httponly=True,
+        samesite=str(settings.session_cookie_samesite),  # type: ignore[arg-type]
+        secure=settings.session_cookie_secure,
+    )
+    return response
 
 
 @app.post("/auth/logout")
@@ -118,12 +181,15 @@ async def logout(
 # ---------------------------------------------------------------------------
 
 
-def _page_context(request: Request, active_page: str, **kwargs: object) -> dict[str, object]:
+def _page_context(
+    request: Request, active_page: str, **kwargs: object
+) -> dict[str, object]:
     """Build standard template context for a page."""
+    settings = _get_settings()
     ctx: dict[str, object] = {
         "request": request,
         "active_page": active_page,
-        "mode": "RESEARCH_ONLY",
+        "mode": settings.mode.value,
         "broker_status": "Not connected",
         "kill_switch": "Disengaged",
     }
@@ -207,7 +273,9 @@ async def operations_broker_health(
     _session_id: Annotated[str, Depends(require_auth)],
 ) -> HTMLResponse:
     return templates.TemplateResponse(
-        request, "operations-broker-health.html", _page_context(request, "operations")
+        request,
+        "operations-broker-health.html",
+        _page_context(request, "operations"),
     )
 
 

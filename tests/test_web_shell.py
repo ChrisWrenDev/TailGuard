@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
 from fastapi.testclient import TestClient
 
-from tailhedge.web.app import app
+from tailhedge.web.app import _LOGIN_CSRF_SCOPE, app
 from tailhedge.web.auth import (
     _SESSION_COOKIE,
     create_session_cookie,
+    generate_csrf_token,
     generate_session_id,
 )
 
@@ -17,13 +21,33 @@ client = TestClient(app)
 def _auth_client() -> TestClient:
     """Return a test client with a valid session cookie."""
     session_id = generate_session_id()
-    _, cookie_value = create_session_cookie(session_id, max_age=3600)
+    cookie_value = create_session_cookie(session_id, max_age=3600)
     return TestClient(app, cookies={_SESSION_COOKIE: cookie_value})
 
 
 def _unauth_client() -> TestClient:
     """Return a test client without authentication."""
     return TestClient(app, follow_redirects=False)
+
+
+def _login(
+    client: TestClient,
+    username: str,
+    password: str,
+    csrf_token: str | None = None,
+) -> Any:
+    token = (
+        csrf_token if csrf_token is not None else generate_csrf_token(_LOGIN_CSRF_SCOPE)
+    )
+    return client.post(
+        "/auth/login",
+        data={
+            "username": username,
+            "password": password,
+            "csrf_token": token,
+        },
+        follow_redirects=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +61,7 @@ class TestHealthEndpoints:
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
+    @pytest.mark.usefixtures("mock_db_ready")
     def test_readyz_returns_ok(self) -> None:
         resp = client.get("/readyz")
         assert resp.status_code == 200
@@ -68,32 +93,22 @@ class TestLoginPage:
         assert resp.status_code == 200
         assert 'name="csrf_token"' in resp.text
 
+    @pytest.mark.usefixtures("auth_db")
     def test_login_rejects_invalid_credentials(self) -> None:
-        resp = client.post(
-            "/auth/login",
-            data={"username": "wrong", "password": "wrong"},
-            follow_redirects=False,
-        )
+        resp = _login(client, "owner", "wrong-password")
         assert resp.status_code == 401
         assert "Invalid username or password" in resp.text
 
+    @pytest.mark.usefixtures("auth_db")
     def test_login_accepts_valid_credentials(self) -> None:
-        resp = client.post(
-            "/auth/login",
-            data={"username": "owner", "password": "owner"},
-            follow_redirects=False,
-        )
+        resp = _login(client, "owner", "correct-horse-battery")
         assert resp.status_code == 303
         assert resp.headers["location"] == "/"
 
+    @pytest.mark.usefixtures("auth_db")
     def test_login_sets_session_cookie(self) -> None:
-        resp = client.post(
-            "/auth/login",
-            data={"username": "owner", "password": "owner"},
-            follow_redirects=False,
-        )
+        resp = _login(client, "owner", "correct-horse-battery")
         assert resp.status_code == 303
-        # Verify Set-Cookie header is present in response
         set_cookie_header = resp.headers.get("set-cookie", "")
         assert _SESSION_COOKIE in set_cookie_header
 
@@ -298,7 +313,7 @@ class TestNavigationStructure:
         auth = _auth_client()
         resp = auth.get("/")
         assert resp.status_code == 200
-        assert 'navigation__link--active' in resp.text
+        assert "navigation__link--active" in resp.text
         assert 'aria-current="page"' in resp.text
 
     def test_status_bar_shows_mode(self) -> None:
