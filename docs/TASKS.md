@@ -135,7 +135,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 ## Data ingestion and controlled evaluator
 
 ### TASK-015 — CSV/Parquet import pipeline
-**Status:** pending  
+**Status:** completed  
 **Description:** Immutable raw file hashing, canonical normalization, Parquet partitioning, dataset DB metadata.  
 **Requirements:** FR-002.  
 **Dependencies:** TASK-005, TASK-007.  
@@ -144,7 +144,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 15.
 
 ### TASK-016 — Dataset validation and health UI
-**Status:** pending  
+**Status:** completed  
 **Description:** Required validation checks/reporting and Data screens.  
 **Requirements:** FR-003.  
 **Dependencies:** TASK-015.  
@@ -153,7 +153,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 16.
 
 ### TASK-017 — DuckDB research repository
-**Status:** pending  
+**Status:** completed  
 **Description:** Query canonical Parquet by date/instrument without loading into Postgres.  
 **Requirements:** FR-002, FR-004.  
 **Dependencies:** TASK-015.  
@@ -162,7 +162,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 17.
 
 ### TASK-018 — Time-blocked splits with purge/embargo
-**Status:** pending  
+**Status:** completed  
 **Description:** Implement train/validation/final-holdout partition object and physical allowed-range materialisation/mount lists.  
 **Requirements:** FR-004, FR-010.  
 **Dependencies:** TASK-017.  
