@@ -237,8 +237,7 @@ The strategy SDK exposes a narrow versioned interface, conceptually:
 
 ```python
 class Strategy:
-    def decide(self, context: StrategyContext) -> TargetHedgePlan:
-        ...
+    def decide(self, context: StrategyContext) -> TargetHedgePlan: ...
 ```
 
 `StrategyContext` contains only time-appropriate, explicitly enabled features. It contains no future data and no broker/order methods.

@@ -57,3 +57,6 @@ alembic/versions/*.pyc
 
 # Jupyter
 .ipynb_checkpoints/
+
+# OpenCode
+.opencode/

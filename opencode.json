@@ -1,0 +1,41 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "shell": "/bin/zsh",
+  "instructions": ["docs/AGENT_INSTRUCTIONS.md"],
+  "references": {
+    "docs": {
+      "path": "docs",
+      "description": "Project specifications, architecture, data model, API spec, and implementation plan for TailHedge"
+    }
+  },
+  "permission": {
+    "bash": {
+      "uv run *": "allow",
+      "docker compose *": "allow",
+      "git *": "allow",
+      "ruff *": "allow",
+      "mypy *": "allow",
+      "pytest *": "allow",
+      "alembic *": "allow"
+    }
+  },
+  "watcher": {
+    "ignore": [
+      ".venv/**",
+      "__pycache__/**",
+      "*.pyc",
+      ".mypy_cache/**",
+      ".ruff_cache/**",
+      ".pytest_cache/**",
+      "data/**",
+      "*.egg-info/**"
+    ]
+  },
+  "formatter": {
+    "python": {
+      "command": ["uv", "run", "ruff", "format"],
+      "extensions": [".py"]
+    }
+  },
+  "lsp": false
+}
