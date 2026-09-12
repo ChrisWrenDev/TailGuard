@@ -19,7 +19,7 @@ jobs:
         with:
           version: "0.5"
       - run: uv python install 3.12
-      - run: uv sync --dev
+      - run: uv sync --extra dev
       - run: uv run ruff check src tests
       - run: uv run ruff format --check src tests
 
@@ -31,16 +31,32 @@ jobs:
         with:
           version: "0.5"
       - run: uv python install 3.12
-      - run: uv sync --dev
+      - run: uv sync --extra dev
       - run: uv run mypy src tests
 
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tailhedge
+          POSTGRES_PASSWORD: tailhedge
+          POSTGRES_DB: tailhedge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tailhedge"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v4
         with:
           version: "0.5"
       - run: uv python install 3.12
-      - run: uv sync --dev
+      - run: uv sync --extra dev
       - run: uv run pytest --cov --cov-report=term-missing
+        env:
+          TAILHEDGE_TEST_DATABASE_URL: postgresql+psycopg://tailhedge:tailhedge@localhost:5432/tailhedge_test

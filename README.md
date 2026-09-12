@@ -46,8 +46,8 @@ Core trust rule: **the research/AI layer never has broker authority.** It can on
 ```text
 /
 ├── README.md
-├── pyproject.toml                # future
-├── compose.yaml                  # future
+├── pyproject.toml
+├── compose.yaml                   # local dev services (PostgreSQL)
 ├── docs/
 │   ├── PROJECT_OVERVIEW.md
 │   ├── PRD.md
@@ -63,11 +63,11 @@ Core trust rule: **the research/AI layer never has broker authority.** It can on
 │   ├── TASKS.md
 │   ├── DECISIONS.md
 │   └── OPEN_QUESTIONS.md
-├── src/tailhedge/                # future
-├── strategy_sdk/                 # future
-├── evaluator_image/              # future
-├── tests/                        # future
-└── data/                         # future, gitignored/licensed local data
+├── src/tailhedge/
+├── strategy_sdk/                  # future
+├── evaluator_image/               # future
+├── tests/
+└── data/                          # gitignored/licensed local data
 ```
 
 See `docs/TECHNICAL_ARCHITECTURE.md` for the full proposed structure.
@@ -87,6 +87,41 @@ The specification selects:
 
 The first runnable version must use synthetic/golden data and `FakeBroker`; no paid dataset or broker account should be required to verify core correctness.
 
+## Developer commands
+
+```bash
+# 1. Install (dev toolchain included)
+uv sync --extra dev
+
+# 2. Start local PostgreSQL (creates tailhedge_test database)
+docker compose up -d
+
+# 3. Run the quality gates
+uv run ruff check src tests
+uv run ruff format --check src tests
+uv run mypy src tests
+uv run pytest
+
+# 4. Run the integration suite (PostgreSQL-backed job queue / persistence / migrations)
+export TAILHEDGE_TEST_DATABASE_URL=postgresql+psycopg://tailhedge:tailhedge@localhost:5432/tailhedge_test
+uv run pytest
+
+# 5. Apply database migrations
+uv run alembic upgrade head
+
+# 6. Create the single owner login account
+uv run tailhedge create-owner --username owner
+
+# 7. Run the job worker (dummy handler for smoke testing)
+uv run tailhedge-worker --dummy
+
+# 8. Run the web application
+uv run uvicorn tailhedge.web.app:app --reload
+```
+
+Configuration is documented in `.env.example`; secrets are loaded from
+`TAILHEDGE_SECRET_*` environment variables only and are never logged.
+
 ## Important documentation
 
 Start here:
@@ -104,7 +139,7 @@ Start here:
 
 ```text
 Specifications       COMPLETE
-Repository bootstrap NOT STARTED
+Repository bootstrap COMPLETE
 Research engine      NOT STARTED
 Autoresearch loop    NOT STARTED
 IBKR shadow          NOT STARTED
