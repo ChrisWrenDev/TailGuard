@@ -233,12 +233,72 @@ class TestOperationsPages:
 
 
 class TestDataPage:
+    @pytest.mark.usefixtures("auth_db_with_datasets")
     def test_data_page_renders(self) -> None:
         auth = _auth_client()
         resp = auth.get("/data")
         assert resp.status_code == 200
         assert "Data" in resp.text
+        assert "Research Datasets" in resp.text
+
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_data_page_shows_empty_state(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/data")
+        assert resp.status_code == 200
+        assert "No datasets imported" in resp.text
+
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_data_page_has_import_button(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/data")
+        assert resp.status_code == 200
         assert "Import Dataset" in resp.text
+
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_data_page_requires_auth(self) -> None:
+        resp = _unauth_client().get("/data")
+        assert resp.status_code == 303
+        assert resp.headers["location"] == "/auth/login"
+
+
+class TestDataHealthAPI:
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_datasets_api_requires_auth(self) -> None:
+        resp = _unauth_client().get("/api/v1/datasets")
+        assert resp.status_code == 303
+
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_datasets_api_returns_empty_list(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/api/v1/datasets")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["datasets"] == []
+        assert data["count"] == 0
+
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_validation_api_requires_auth(self) -> None:
+        resp = _unauth_client().get(
+            "/api/v1/datasets/00000000-0000-0000-0000-000000000000/validation"
+        )
+        assert resp.status_code == 303
+
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_validation_api_invalid_id_format(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/api/v1/datasets/invalid-id/validation")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "error" in data
+
+    @pytest.mark.usefixtures("auth_db_with_datasets")
+    def test_import_form_endpoint(self) -> None:
+        auth = _auth_client()
+        resp = auth.get("/data/import-form")
+        assert resp.status_code == 200
+        assert "Import Dataset" in resp.text
+        assert "csrf_token" in resp.text
 
 
 class TestAuditLogPage:

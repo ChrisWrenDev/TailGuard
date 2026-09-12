@@ -6,16 +6,230 @@
 <div class="page">
     <h1 class="page__title">Data</h1>
 
+    {% if import_message %}
+    <div class="card card--info" role="status" aria-live="polite">
+        <p class="card__text">{{ import_message }}</p>
+    </div>
+    {% endif %}
+
     <section class="card" aria-labelledby="datasets">
         <h2 id="datasets" class="card__title">Research Datasets</h2>
+
+        {% if datasets %}
+        <div class="table-responsive">
+            <table class="table" aria-label="Imported datasets">
+                <thead>
+                    <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Vendor</th>
+                        <th scope="col">Date Range</th>
+                        <th scope="col">Rows</th>
+                        <th scope="col">Schema</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Health</th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ds in datasets %}
+                    <tr data-dataset-id="{{ ds.id }}">
+                        <td>
+                            <strong>{{ ds.name }}</strong>
+                        </td>
+                        <td>{{ ds.source_vendor }}</td>
+                        <td>{{ ds.start_date }} to {{ ds.end_date }}</td>
+                        <td data-testid="row-count">{{ ds.row_count }}</td>
+                        <td>v{{ ds.schema_version }}</td>
+                        <td>
+                            <span class="status-badge status-badge--{{ ds.status|lower }}"
+                                  role="status"
+                                  aria-label="Dataset status: {{ ds.status }}">
+                                {{ ds.status }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if ds.validation %}
+                            <span class="status-badge status-badge--{{ ds.validation.status|lower }}"
+                                  role="status"
+                                  aria-label="Validation: {{ ds.validation.status }}"
+                                  data-testid="validation-status">
+                                {{ ds.validation.status }}
+                            </span>
+                            {% if ds.validation.summary and ds.validation.summary.checks %}
+                            <button class="button button--small button--secondary"
+                                    hx-get="/api/v1/datasets/{{ ds.id }}/validation"
+                                    hx-target="#validation-detail-{{ ds.id }}"
+                                    hx-swap="innerHTML"
+                                    aria-expanded="false"
+                                    aria-controls="validation-detail-{{ ds.id }}">
+                                View Details
+                            </button>
+                            {% endif %}
+                            {% else %}
+                            <span class="text-muted">Not validated</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="/data/datasets/{{ ds.id }}" class="button button--small button--secondary">
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                    {% if ds.validation and ds.validation.summary and ds.validation.summary.checks %}
+                    <tr id="validation-detail-{{ ds.id }}" class="validation-detail" style="display: none;">
+                        <td colspan="8">
+                            <div class="validation-report">
+                                <h3 class="validation-report__title">Validation Report</h3>
+
+                                {% set summary = ds.validation.summary %}
+                                {% if summary.errors %}
+                                <div class="alert alert--danger" role="alert">
+                                    <strong>Fatal Errors ({{ summary.errors|length }}):</strong>
+                                    <ul class="alert__list">
+                                        {% for error in summary.errors %}
+                                        <li>{{ error }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                                {% endif %}
+
+                                {% if summary.warnings %}
+                                <div class="alert alert--warning" role="status">
+                                    <strong>Warnings ({{ summary.warnings|length }}):</strong>
+                                    <ul class="alert__list">
+                                        {% for warning in summary.warnings %}
+                                        <li>{{ warning }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                                {% endif %}
+
+                                <div class="validation-checks">
+                                    <h4>Check Results</h4>
+                                    <table class="table table--compact" aria-label="Validation checks">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Check</th>
+                                                <th scope="col">Status</th>
+                                                <th scope="col">Details</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for check in summary.checks %}
+                                            <tr>
+                                                <td>{{ check.name|replace('_', ' ')|title }}</td>
+                                                <td>
+                                                    <span class="status-badge status-badge--{{ check.status|lower }}">
+                                                        {{ check.status }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    {{ check.message }}
+                                                    {% if check.affected_rows > 0 %}
+                                                    <span class="text-muted">
+                                                        ({{ check.affected_rows }} row(s) affected)
+                                                    </span>
+                                                    {% endif %}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
         <div class="empty-state" role="status">
             <p class="empty-state__text">
                 No datasets imported. Import CSV or Parquet files to begin research.
             </p>
             <p class="empty-state__actions">
-                <a href="/data/import" class="button button--primary">Import Dataset</a>
+                <button class="button button--primary"
+                        hx-get="/data/import-form"
+                        hx-target="#import-form-container"
+                        hx-swap="innerHTML">
+                    Import Dataset
+                </button>
+            </p>
+        </div>
+        {% endif %}
+    </section>
+
+    {% if datasets %}
+    <section class="card" aria-labelledby="data-health-summary">
+        <h2 id="data-health-summary" class="card__title">Data Health Summary</h2>
+
+        {% set fatal_count = datasets|selectattr('status', 'equalto', 'BLOCKED')|list|length %}
+        {% set ready_count = datasets|selectattr('status', 'equalto', 'READY')|list|length %}
+        {% set warning_count = datasets|selectattr('validation.status', 'equalto', 'WARN')|list|length %}
+
+        <div class="card-grid">
+            <div class="card card--small" role="status">
+                <h3 class="card__subtitle">Ready Datasets</h3>
+                <p class="card__metric" data-testid="ready-count">{{ ready_count }}</p>
+                <p class="card__text">Available for campaign use</p>
+            </div>
+
+            <div class="card card--small" role="status">
+                <h3 class="card__subtitle">Fatal Datasets</h3>
+                <p class="card__metric card__metric--danger" data-testid="fatal-count">{{ fatal_count }}</p>
+                <p class="card__text">
+                    {% if fatal_count > 0 %}
+                    <strong>Campaigns cannot start with fatal datasets</strong>
+                    {% else %}
+                    No fatal datasets
+                    {% endif %}
+                </p>
+            </div>
+
+            <div class="card card--small" role="status">
+                <h3 class="card__subtitle">Datasets with Warnings</h3>
+                <p class="card__metric card__metric--warning" data-testid="warning-count">{{ warning_count }}</p>
+                <p class="card__text">Warnings quantified per field and date</p>
+            </div>
+        </div>
+    </section>
+    {% endif %}
+
+    <div id="import-form-container"></div>
+
+    <section class="card" aria-labelledby="import-dataset">
+        <h2 id="import-dataset" class="card__title">Import New Dataset</h2>
+        <div class="empty-state" role="status">
+            <p class="empty-state__text">
+                Import CSV or Parquet files with historical option-chain or underlying data.
+            </p>
+            <p class="empty-state__actions">
+                <button class="button button--primary"
+                        hx-get="/data/import-form"
+                        hx-target="#import-form-container"
+                        hx-swap="innerHTML">
+                    Start Import
+                </button>
             </p>
         </div>
     </section>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('[aria-controls]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            var targetId = this.getAttribute('aria-controls');
+            var target = document.getElementById(targetId);
+            if (target) {
+                var isExpanded = this.getAttribute('aria-expanded') === 'true';
+                this.setAttribute('aria-expanded', !isExpanded);
+                target.style.display = isExpanded ? 'none' : '';
+            }
+        });
+    });
+});
+</script>
 {% endblock %}

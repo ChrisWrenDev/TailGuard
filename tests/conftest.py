@@ -73,6 +73,45 @@ def auth_db() -> Generator[sessionmaker[Session], None, None]:
 
 
 @pytest.fixture
+def auth_db_with_datasets() -> Generator[sessionmaker[Session], None, None]:
+    """Auth fixture with dataset tables for data page tests.
+
+    Uses PostgreSQL (from TAILHEDGE_TEST_DATABASE_URL) or skips.
+    """
+    from tailhedge.persistence.engine import get_session
+    from tailhedge.persistence.models import AppUser
+    from tailhedge.web import app as web_app
+    from tailhedge.web.auth import hash_password
+
+    if TEST_DATABASE_URL is None:
+        pytest.skip(
+            "Data page tests require PostgreSQL; set TAILHEDGE_TEST_DATABASE_URL"
+        )
+    engine = create_engine(TEST_DATABASE_URL)
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as session:
+        session.add(
+            AppUser(
+                username="owner",
+                password_hash=hash_password("correct-horse-battery"),
+                role="OWNER",
+            )
+        )
+        session.commit()
+
+    def override() -> Generator[Session, None, None]:
+        with factory() as s:
+            yield s
+
+    web_app.app.dependency_overrides[get_session] = override
+    yield factory
+    web_app.app.dependency_overrides.pop(get_session, None)
+    engine.dispose()
+
+
+@pytest.fixture
 def mock_db_ready() -> Generator[None, None, None]:
     """Stub the readiness check so /readyz passes without a live database."""
     from tailhedge.web import app as web_app

@@ -262,7 +262,7 @@ def read_parquet_to_canonical(
 
 
 def write_parquet_partitioned(
-    rows: list[CanonicalOptionRow] | list[CanonicalUnderlyingRow],
+    rows: list[CanonicalOptionRow | CanonicalUnderlyingRow],
     output_dir: Path,
     *,
     source_role: str = "OPTION_CHAIN",
@@ -361,7 +361,7 @@ def run_import(
         )
 
     # Step 2: Read and normalize
-    all_rows: list[CanonicalOptionRow] | list[CanonicalUnderlyingRow] = []
+    all_rows: list[CanonicalOptionRow | CanonicalUnderlyingRow] = []
     for rf in raw_files:
         if rf.path.suffix.lower() == ".csv":
             rows = read_csv_to_canonical(
@@ -508,24 +508,31 @@ def run_import(
 
 
 def _validate_dataset(
-    rows: list[CanonicalOptionRow] | list[CanonicalUnderlyingRow],
+    rows: list[CanonicalOptionRow | CanonicalUnderlyingRow],
     source_role: str,
 ) -> tuple[str, dict[str, object]]:
     """Run validation checks on canonical rows.
 
     Returns (status, summary) where status is PASS/WARN/FAIL.
     """
-    warnings: list[str] = []
-    errors: list[str] = []
+    from tailhedge.data.validation import validate_option_dataset
 
     if not rows:
-        errors.append("Dataset contains no rows")
-        return "FAIL", {"errors": errors, "warnings": warnings}
+        return "FAIL", {
+            "errors": ["Dataset contains no rows"],
+            "warnings": [],
+            "row_count": 0,
+        }
 
     if source_role == "OPTION_CHAIN":
-        _validate_option_rows(rows, warnings, errors)  # type: ignore[arg-type]
-    else:
-        _validate_underlying_rows(rows, warnings, errors)  # type: ignore[arg-type]
+        row_dicts = [r.model_dump() for r in rows]
+        report = validate_option_dataset(row_dicts)
+        return report.status, report.summary_json
+
+    # Underlying rows use simpler validation
+    warnings: list[str] = []
+    errors: list[str] = []
+    _validate_underlying_rows(rows, warnings, errors)  # type: ignore[arg-type]
 
     if errors:
         return "FAIL", {"errors": errors, "warnings": warnings, "row_count": len(rows)}
@@ -533,31 +540,6 @@ def _validate_dataset(
         "WARN" if warnings else "PASS",
         {"warnings": warnings, "row_count": len(rows)},
     )
-
-
-def _validate_option_rows(
-    rows: list[CanonicalOptionRow],
-    warnings: list[str],  # noqa: ARG001 — used by callers for consistency
-    errors: list[str],
-) -> None:
-    """Validate option rows for duplicates and basic invariants."""
-    seen_keys: set[tuple[datetime, str, date, float, str]] = set()
-    for row in rows:
-        key = (
-            row.snapshot_ts_utc,
-            row.root_symbol,
-            row.expiration_date,
-            row.strike,
-            row.option_type.value,
-        )
-        if key in seen_keys:
-            errors.append(f"Duplicate option snapshot key: {key}")
-        seen_keys.add(key)
-
-        if row.expiration_date <= row.trade_date:
-            errors.append(
-                f"expiry {row.expiration_date} <= trade_date {row.trade_date}"
-            )
 
 
 def _validate_underlying_rows(

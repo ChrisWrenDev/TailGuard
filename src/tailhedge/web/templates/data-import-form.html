@@ -1,0 +1,65 @@
+<section class="card" aria-labelledby="import-form">
+    <h2 id="import-form" class="card__title">Import Dataset</h2>
+    <form method="post" action="/api/v1/datasets/import" class="form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="form-group">
+            <label for="import-name" class="form-label">Dataset Name</label>
+            <input type="text"
+                   id="import-name"
+                   name="name"
+                   class="form-input"
+                   required
+                   aria-required="true"
+                   placeholder="e.g., SPX Options 2020-2024">
+        </div>
+
+        <div class="form-group">
+            <label for="import-vendor" class="form-label">Source Vendor</label>
+            <select id="import-vendor" name="source_vendor" class="form-input" required>
+                <option value="CBOE">CBOE</option>
+                <option value="ORATS">ORATS</option>
+                <option value="CUSTOM">Custom</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="import-paths" class="form-label">File Paths</label>
+            <input type="text"
+                   id="import-paths"
+                   name="source_paths"
+                   class="form-input"
+                   required
+                   aria-required="true"
+                   placeholder="Comma-separated file paths">
+            <p class="form-help">Enter absolute paths to CSV or Parquet files, separated by commas.</p>
+        </div>
+
+        <div class="form-group">
+            <label for="import-role" class="form-label">Data Type</label>
+            <select id="import-role" name="source_role" class="form-input">
+                <option value="OPTION_CHAIN">Option Chain</option>
+                <option value="UNDERLYING">Underlying/Portfolio Series</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="import-timezone" class="form-label">Source Timezone</label>
+            <select id="import-timezone" name="timezone" class="form-input">
+                <option value="America/New_York">America/New_York (ET)</option>
+                <option value="America/Chicago">America/Chicago (CT)</option>
+                <option value="America/Los_Angeles">America/Los_Angeles (PT)</option>
+                <option value="UTC">UTC</option>
+            </select>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="button button--primary">Import</button>
+            <button type="button"
+                    class="button button--secondary"
+                    onclick="document.getElementById('import-form-container').innerHTML = ''">
+                Cancel
+            </button>
+        </div>
+    </form>
+</section>

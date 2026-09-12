@@ -17,7 +17,6 @@ from tailhedge.data.canonical_schema import (
 from tailhedge.data.import_pipeline import (
     _coerce_date,
     _coerce_utc_timestamp,
-    _validate_option_rows,
     _validate_underlying_rows,
     hash_file,
     read_csv_to_canonical,
@@ -25,6 +24,7 @@ from tailhedge.data.import_pipeline import (
     write_parquet_partitioned,
 )
 from tailhedge.data.manifests import build_manifest
+from tailhedge.data.validation import validate_option_dataset
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -401,10 +401,11 @@ class TestValidateOptionRows:
                 underlying_price=5000.0,
             ),
         ]
-        warnings: list[str] = []
-        errors: list[str] = []
-        _validate_option_rows(rows, warnings, errors)
-        assert errors == []
+        row_dicts = [r.model_dump() for r in rows]
+        report = validate_option_dataset(row_dicts)
+        # Status may be WARN due to missing optional fields, but no FAIL errors
+        assert report.status != "FAIL"
+        assert len(report.fatal_errors) == 0
 
     def test_duplicate_key_detected(self) -> None:
         rows = [
@@ -435,11 +436,11 @@ class TestValidateOptionRows:
                 underlying_price=5000.0,
             ),
         ]
-        warnings: list[str] = []
-        errors: list[str] = []
-        _validate_option_rows(rows, warnings, errors)
-        assert len(errors) == 1
-        assert "Duplicate" in errors[0]
+        row_dicts = [r.model_dump() for r in rows]
+        report = validate_option_dataset(row_dicts)
+        assert report.status == "FAIL"
+        assert len(report.fatal_errors) == 1
+        assert "duplicate" in report.fatal_errors[0].lower()
 
     def test_expiry_before_trade_date_detected(self) -> None:
         rows = [
@@ -457,11 +458,10 @@ class TestValidateOptionRows:
                 underlying_price=5000.0,
             ),
         ]
-        warnings: list[str] = []
-        errors: list[str] = []
-        _validate_option_rows(rows, warnings, errors)
+        row_dicts = [r.model_dump() for r in rows]
+        report = validate_option_dataset(row_dicts)
         # Valid row: no expiry <= trade_date
-        assert all("expiry" not in e for e in errors)
+        assert all("expiry" not in e for e in report.fatal_errors)
 
 
 class TestValidateUnderlyingRows:
