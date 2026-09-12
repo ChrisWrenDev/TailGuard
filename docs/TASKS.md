@@ -106,7 +106,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 11.
 
 ### TASK-012 — Hedge roll, monetisation, and reinvestment mechanics
-**Status:** pending  
+**Status:** completed  
 **Description:** Support daily strategy-directed sell-to-close, roll, cash release, and core reinvestment without intraday inference.  
 **Requirements:** FR-004, FR-019.  
 **Dependencies:** TASK-010, TASK-011.  
