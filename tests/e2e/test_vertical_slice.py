@@ -12,13 +12,22 @@ import socket
 import threading
 import time
 import urllib.request
+from typing import TYPE_CHECKING
 
 import pytest
 
 pytest.importorskip("playwright")
 
 import uvicorn
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import (
+    Browser,
+    BrowserContext,
+    expect,
+    sync_playwright,
+)
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 from tailhedge.web.app import app
 from tailhedge.web.auth import (
@@ -31,7 +40,7 @@ pytestmark = pytest.mark.e2e
 
 
 @pytest.fixture(scope="module")
-def server_url() -> str:
+def server_url() -> Generator[str, None, None]:
     """Start a live uvicorn server on a random port for the module."""
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -56,7 +65,7 @@ def server_url() -> str:
         thread.join(timeout=10)
 
 
-def _authed_context(browser: object, server_url: str) -> object:
+def _authed_context(browser: Browser, server_url: str) -> BrowserContext:
     """Browser context with a forged valid session cookie."""
     session_id = generate_session_id()
     cookie_value = create_session_cookie(session_id, max_age=3600)

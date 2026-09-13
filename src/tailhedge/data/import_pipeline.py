@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, overload
 
 import polars as pl
 
@@ -26,6 +26,8 @@ from tailhedge.data.canonical_schema import (
 from tailhedge.data.manifests import FileHash, build_manifest
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -97,6 +99,39 @@ _DEFAULT_CSV_OPTION_MAP: dict[str, str] = {
     "source_contract_id": "source_contract_id",
     "source": "source",
 }
+
+
+@overload
+def read_csv_to_canonical(
+    path: Path,
+    *,
+    source_vendor: str,
+    column_map: dict[str, str] | None = ...,
+    timezone: str = ...,
+    source_role: Literal["OPTION_CHAIN"] = "OPTION_CHAIN",
+) -> list[CanonicalOptionRow]: ...
+
+
+@overload
+def read_csv_to_canonical(
+    path: Path,
+    *,
+    source_vendor: str,
+    column_map: dict[str, str] | None = ...,
+    timezone: str = ...,
+    source_role: Literal["UNDERLYING"],
+) -> list[CanonicalUnderlyingRow]: ...
+
+
+@overload
+def read_csv_to_canonical(
+    path: Path,
+    *,
+    source_vendor: str,
+    column_map: dict[str, str] | None = ...,
+    timezone: str = ...,
+    source_role: str,
+) -> list[CanonicalOptionRow] | list[CanonicalUnderlyingRow]: ...
 
 
 def read_csv_to_canonical(
@@ -262,7 +297,7 @@ def read_parquet_to_canonical(
 
 
 def write_parquet_partitioned(
-    rows: list[CanonicalOptionRow | CanonicalUnderlyingRow],
+    rows: Sequence[CanonicalOptionRow | CanonicalUnderlyingRow],
     output_dir: Path,
     *,
     source_role: str = "OPTION_CHAIN",

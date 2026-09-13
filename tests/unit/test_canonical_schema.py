@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timezone
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -95,7 +96,7 @@ class TestCanonicalOptionRow:
                 strike=500.0,
                 option_type=OptionType.PUT,
                 # bid missing
-                ask=11.0,
+                ask=11.0,  # type: ignore[call-arg]
                 underlying_price=5000.0,
             )
 
@@ -254,7 +255,7 @@ class TestCanonicalUnderlyingRow:
                 symbol="SPX",
                 currency="USD",
                 source="CBOE",
-            )
+            )  # type: ignore[call-arg]
 
     def test_invalid_currency_length_rejected(self) -> None:
         with pytest.raises(ValidationError):
@@ -291,7 +292,7 @@ def test_option_type_enum_members() -> None:
 class TestTimestampUTCEnforcement:
     """Timestamps must be tz-aware and UTC (offset zero)."""
 
-    def _option_kwargs(self, ts: datetime) -> dict[str, object]:
+    def _option_kwargs(self, ts: datetime) -> dict[str, Any]:
         return {
             "snapshot_ts_utc": ts,
             "trade_date": date(2025, 1, 15),
@@ -306,7 +307,7 @@ class TestTimestampUTCEnforcement:
             "underlying_price": 5000.0,
         }
 
-    def _underlying_kwargs(self, ts: datetime) -> dict[str, object]:
+    def _underlying_kwargs(self, ts: datetime) -> dict[str, Any]:
         return {
             "timestamp_utc": ts,
             "trade_date": date(2025, 1, 15),
@@ -331,7 +332,9 @@ class TestTimestampUTCEnforcement:
         row = CanonicalOptionRow(
             **self._option_kwargs(datetime(2025, 1, 15, 20, 45, tzinfo=UTC))
         )
-        assert row.snapshot_ts_utc.utcoffset().total_seconds() == 0
+        offset = row.snapshot_ts_utc.utcoffset()
+        assert offset is not None
+        assert offset.total_seconds() == 0
 
     def test_naive_underlying_timestamp_rejected(self) -> None:
         with pytest.raises(ValidationError, match=r"timezone-aware"):
@@ -353,8 +356,8 @@ class TestTimestampUTCEnforcement:
 
 
 class TestUnderlyingRowStrength:
-    def _kwargs(self, **overrides: float) -> dict[str, object]:
-        base: dict[str, object] = {
+    def _kwargs(self, **overrides: Any) -> dict[str, Any]:
+        base: dict[str, Any] = {
             "timestamp_utc": datetime(2025, 1, 15, 20, 0, tzinfo=UTC),
             "trade_date": date(2025, 1, 15),
             "symbol": "SPX",

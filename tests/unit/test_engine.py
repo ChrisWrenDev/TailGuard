@@ -10,6 +10,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import date
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -31,7 +32,7 @@ from tailhedge.backtest.engine import (
     run_daily_backtest,
 )
 from tailhedge.backtest.fill_model import Quote
-from tailhedge.backtest.ledger import EventType
+from tailhedge.backtest.ledger import BacktestLedger, EventType
 from tailhedge.backtest.metrics import calculate_metrics, compare_to_baseline
 from tailhedge.backtest.strategy import RollConfig
 from tailhedge.backtest.synthetic import generate_synthetic_dataset
@@ -53,6 +54,9 @@ from tailhedge.data.fixtures import (
     underlying_prices_map,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
 GF001_EX1 = date(2025, 1, 21)
 GF002_EX2 = date(2025, 2, 21)
 
@@ -71,7 +75,13 @@ class _ScriptedPolicy:
         self.script = script
         self.done: set[date] = set()
 
-    def decide(self, trade_date, ledger, quotes_by_day_map, close):  # noqa: ARG002
+    def decide(
+        self,
+        trade_date: date,
+        _ledger: BacktestLedger,
+        _quotes_by_day_map: Mapping[date, Sequence[Quote]],
+        _close: float,
+    ) -> list[tuple[EngineAction, ReinvestDirective | None]]:
         if trade_date in self.script and trade_date not in self.done:
             self.done.add(trade_date)
             return self.script[trade_date]
@@ -239,7 +249,13 @@ class TestEngineFailClosed:
         prices = {date(2025, 1, 15): 5000.0}
 
         class BadPolicy:
-            def decide(self, _trade_date, _ledger, _quotes, _close):
+            def decide(
+                self,
+                _trade_date: date,
+                _ledger: BacktestLedger,
+                _quotes: Mapping[date, Sequence[Quote]],
+                _close: float,
+            ) -> list[tuple[EngineAction, ReinvestDirective | None]]:
                 return [
                     (
                         EngineAction(
@@ -255,7 +271,7 @@ class TestEngineFailClosed:
         with pytest.raises(ValueError, match="Unknown engine action"):
             run_daily_backtest(
                 config=BacktestConfig(initial_cash=100_000.0),
-                policy=BadPolicy(),  # type: ignore[arg-type]
+                policy=BadPolicy(),
                 underlying_prices=prices,
                 quotes_by_day={},
             )
@@ -264,7 +280,13 @@ class TestEngineFailClosed:
         prices = {date(2025, 1, 15): 5000.0, date(2025, 1, 16): 4980.0}
 
         class NoQuotePolicy:
-            def decide(self, _trade_date, _ledger, _quotes, _close):
+            def decide(
+                self,
+                _trade_date: date,
+                _ledger: BacktestLedger,
+                _quotes: Mapping[date, Sequence[Quote]],
+                _close: float,
+            ) -> list[tuple[EngineAction, ReinvestDirective | None]]:
                 return [
                     (
                         EngineAction(
@@ -279,7 +301,7 @@ class TestEngineFailClosed:
 
         result = run_daily_backtest(
             config=BacktestConfig(initial_cash=100_000.0),
-            policy=NoQuotePolicy(),  # type: ignore[arg-type]
+            policy=NoQuotePolicy(),
             underlying_prices=prices,
             quotes_by_day={},  # no quotes at all
         )
@@ -318,7 +340,13 @@ class TestEngineFailClosed:
             def __init__(self) -> None:
                 self.bought = False
 
-            def decide(self, trade_date, ledger, quotes, close):  # noqa: ARG002
+            def decide(
+                self,
+                _trade_date: date,
+                _ledger: BacktestLedger,
+                _quotes: Mapping[date, Sequence[Quote]],
+                _close: float,
+            ) -> list[tuple[EngineAction, ReinvestDirective | None]]:
                 if self.bought:
                     return []
                 self.bought = True
@@ -337,7 +365,7 @@ class TestEngineFailClosed:
         with pytest.raises(ValueError, match="never settled"):
             run_daily_backtest(
                 config=BacktestConfig(initial_cash=100_000.0),
-                policy=BuyThenHoldPolicy(),  # type: ignore[arg-type]
+                policy=BuyThenHoldPolicy(),
                 underlying_prices=prices,
                 quotes_by_day={date(2025, 1, 15): [quote]},
             )
@@ -592,5 +620,9 @@ class TestSyntheticBacktestResult:
 
         payload = run_synthetic_backtest().to_api_dict()
         assert payload["status"] == "success"
-        assert {"cagr", "max_drawdown", "total_premium_spent"} <= set(payload["hedged"])  # type: ignore[operator]
-        assert len(payload["baselines"]) == 3  # type: ignore[len-type]
+        hedged = payload["hedged"]
+        assert isinstance(hedged, dict)
+        assert {"cagr", "max_drawdown", "total_premium_spent"} <= set(hedged)
+        baselines = payload["baselines"]
+        assert isinstance(baselines, list)
+        assert len(baselines) == 3

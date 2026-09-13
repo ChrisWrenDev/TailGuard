@@ -154,7 +154,9 @@ class TestReadCsvToCanonical:
         row = rows[0]
         assert isinstance(row, CanonicalOptionRow)
         assert row.snapshot_ts_utc.tzinfo is not None
-        assert row.snapshot_ts_utc.utcoffset().total_seconds() == 0
+        offset = row.snapshot_ts_utc.utcoffset()
+        assert offset is not None
+        assert offset.total_seconds() == 0
 
     def test_file_not_found(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
@@ -331,7 +333,9 @@ class TestCoerceUtcTimestamp:
         ts = datetime(2025, 1, 15, 15, 45)
         result = _coerce_utc_timestamp(ts, "America/New_York")
         assert result.tzinfo is not None
-        assert result.utcoffset().total_seconds() == 0
+        offset = result.utcoffset()
+        assert offset is not None
+        assert offset.total_seconds() == 0
 
     def test_utc_datetime_preserved(self) -> None:
         ts = datetime(2025, 1, 15, 20, 45, tzinfo=UTC)
@@ -341,7 +345,9 @@ class TestCoerceUtcTimestamp:
     def test_string_parsed(self) -> None:
         result = _coerce_utc_timestamp("2025-01-15T20:45:00", "America/New_York")
         assert result.tzinfo is not None
-        assert result.utcoffset().total_seconds() == 0
+        offset = result.utcoffset()
+        assert offset is not None
+        assert offset.total_seconds() == 0
 
     def test_date_coerced(self) -> None:
         result = _coerce_utc_timestamp(date(2025, 1, 15), "America/New_York")

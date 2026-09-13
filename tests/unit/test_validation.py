@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from tailhedge.data.validation import ValidationReport, validate_option_dataset
+from tailhedge.data.validation import (
+    ValidationCheck,
+    ValidationReport,
+    validate_option_dataset,
+)
 
 
 def _make_row(
@@ -40,7 +44,7 @@ def _make_row(
     }
 
 
-def _get_check(report: ValidationReport, name: str):
+def _get_check(report: ValidationReport, name: str) -> ValidationCheck:
     """Get a validation check by name from a report."""
     return next(c for c in report.checks if c.name == name)
 
@@ -298,7 +302,10 @@ class TestSummaryJson:
     def test_summary_json_checks_have_structure(self) -> None:
         rows = [_make_row()]
         report = validate_option_dataset(rows)
-        for check in report.summary_json["checks"]:
+        checks = report.summary_json["checks"]
+        assert isinstance(checks, list)
+        for check in checks:
+            assert isinstance(check, dict)
             assert "name" in check
             assert "status" in check
             assert "message" in check
@@ -310,7 +317,9 @@ class TestSummaryJson:
         rows = [_make_row(bid=-1.0)]
         report = validate_option_dataset(rows)
         assert report.summary_json["status"] == "FAIL"
-        assert len(report.summary_json["errors"]) > 0
+        errors = report.summary_json["errors"]
+        assert isinstance(errors, list)
+        assert len(errors) > 0
 
     def test_warning_status_reflected_in_summary(self) -> None:
         rows = [_make_row()]  # Missing optional fields -> warnings

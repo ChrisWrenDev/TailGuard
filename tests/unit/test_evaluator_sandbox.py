@@ -63,7 +63,7 @@ def _make_context(
     trade_date: str = "2026-01-15",
     underlying_close: float = 500.0,
     features: list[str] | None = None,
-) -> dict[str, object]:  # type: ignore[type-arg]
+) -> dict[str, object]:
     """Create a minimal StrategyContext dict for testing."""
     return {
         "trade_date": trade_date,
@@ -701,7 +701,10 @@ class Strategy:
             wall_timeout_seconds=30,
         )
         assert result.success
-        assert "CURRENT_PORTFOLIO" in result.output_json["reasoning"]  # type: ignore[index]
+        assert result.output_json is not None
+        reasoning = result.output_json["reasoning"]
+        assert isinstance(reasoning, str)
+        assert "CURRENT_PORTFOLIO" in reasoning
 
     def test_strategy_hash_verification(self) -> None:
         """Hash mismatch must be rejected before container launch."""

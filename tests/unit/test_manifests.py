@@ -276,7 +276,7 @@ class TestHashSensitivity:
             "row_count": 1000,
         }
         kwargs.update(overrides)
-        return DatasetManifest(**kwargs)  # type: ignore[arg-type]
+        return DatasetManifest(**kwargs)
 
     def test_different_start_date_changes_hash(self) -> None:
         assert compute_manifest_hash(self._base()) != compute_manifest_hash(

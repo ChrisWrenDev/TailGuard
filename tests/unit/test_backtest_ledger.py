@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from datetime import date
+from typing import TypedDict
 
 import pytest
 from hypothesis import given, settings
@@ -450,15 +451,27 @@ _STRIKE = 4900.0
 _EXPIRY = date(2026, 6, 30)
 
 
+class _LifecycleScenario(TypedDict):
+    """Typed shape of a generated lifecycle scenario."""
+
+    quantity: int
+    premium: float
+    initial_cash: float
+    sells: list[dict[str, float]]
+    remaining: int
+    settle: bool
+    underlying_at_expiry: float
+
+
 @st.composite
-def _lifecycle_scenarios(draw: st.DrawFn) -> dict[str, object]:
+def _lifecycle_scenarios(draw: st.DrawFn) -> _LifecycleScenario:
     """Generate a feasible buy -> partial sells -> settlement lifecycle."""
     quantity = draw(st.integers(min_value=1, max_value=10))
     premium = draw(st.floats(min_value=0.0, max_value=200.0))
     cost = premium * quantity * 100
     initial_cash = cost * draw(st.floats(min_value=1.1, max_value=3.0))
 
-    sells = []
+    sells: list[dict[str, float]] = []
     remaining = quantity
     n_sells = draw(st.integers(min_value=0, max_value=quantity))
     for _ in range(n_sells):
@@ -498,15 +511,15 @@ class TestPropertyBasedInvariants:
     @settings(max_examples=100)
     @given(scenario=_lifecycle_scenarios())
     def test_cash_matches_independent_expected_value(
-        self, scenario: dict[str, object]
+        self, scenario: _LifecycleScenario
     ) -> None:
-        quantity = int(scenario["quantity"])
-        premium = float(scenario["premium"])
-        initial_cash = float(scenario["initial_cash"])
+        quantity = scenario["quantity"]
+        premium = scenario["premium"]
+        initial_cash = scenario["initial_cash"]
         sells = scenario["sells"]
-        remaining = int(scenario["remaining"])
-        settle = bool(scenario["settle"])
-        underlying = float(scenario["underlying_at_expiry"])
+        remaining = scenario["remaining"]
+        settle = scenario["settle"]
+        underlying = scenario["underlying_at_expiry"]
 
         ledger = BacktestLedger(
             initial_cash=initial_cash, initial_date=date(2025, 1, 15)
@@ -522,15 +535,16 @@ class TestPropertyBasedInvariants:
         # Independently computed expected cash
         expected = initial_cash - premium * quantity * 100
         for sell in sells:
-            assert isinstance(sell, dict)
+            sell_quantity = int(sell["quantity"])
+            sell_price = sell["price"]
             ledger.sell_to_close(
                 trade_date=date(2025, 3, 2),
                 strike=_STRIKE,
                 expiration_date=_EXPIRY,
-                quantity=int(sell["quantity"]),
-                price=float(sell["price"]),
+                quantity=sell_quantity,
+                price=sell_price,
             )
-            expected += float(sell["price"]) * int(sell["quantity"]) * 100
+            expected += sell_price * sell_quantity * 100
 
         if settle:
             ledger.settle_expiry(trade_date=_EXPIRY, underlying_price=underlying)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,9 @@ def dataset_import_handler(payload: dict[str, Any]) -> None:
         len(source_paths),
     )
 
-    with get_session() as session:
+    # get_session is a generator dependency (FastAPI), not a context
+    # manager; wrap it for commit-on-success/rollback semantics.
+    with contextmanager(get_session)() as session:
         result = run_import(
             session,
             name=name,

@@ -177,7 +177,7 @@ def option_dataset(tmp_path: Path) -> Path:
 
     output_dir = tmp_path / "normalized" / "dataset1" / "options"
     output_dir.mkdir(parents=True)
-    write_parquet_partitioned(rows, output_dir, source_role="OPTION_CHAIN")  # type: ignore[arg-type]
+    write_parquet_partitioned(rows, output_dir, source_role="OPTION_CHAIN")
     return tmp_path / "normalized" / "dataset1"
 
 
@@ -209,7 +209,7 @@ def underlying_dataset(tmp_path: Path) -> Path:
 
     output_dir = tmp_path / "normalized" / "dataset2" / "underlying"
     output_dir.mkdir(parents=True)
-    write_parquet_partitioned(rows, output_dir, source_role="UNDERLYING")  # type: ignore[arg-type]
+    write_parquet_partitioned(rows, output_dir, source_role="UNDERLYING")
     return tmp_path / "normalized" / "dataset2"
 
 
@@ -257,11 +257,11 @@ def combined_dataset(tmp_path: Path) -> Path:
     root = tmp_path / "normalized" / "combined"
     options_dir = root / "options"
     options_dir.mkdir(parents=True)
-    write_parquet_partitioned(option_rows, options_dir, source_role="OPTION_CHAIN")  # type: ignore[arg-type]
+    write_parquet_partitioned(option_rows, options_dir, source_role="OPTION_CHAIN")
 
     underlying_dir = root / "underlying"
     underlying_dir.mkdir(parents=True)
-    write_parquet_partitioned(underlying_rows, underlying_dir, source_role="UNDERLYING")  # type: ignore[arg-type]
+    write_parquet_partitioned(underlying_rows, underlying_dir, source_role="UNDERLYING")
 
     return root
 
@@ -652,7 +652,7 @@ class TestMissingDataset:
         ]
         output_dir = tmp_path / "underlying"
         output_dir.mkdir()
-        write_parquet_partitioned(rows, output_dir, source_role="UNDERLYING")  # type: ignore[arg-type]
+        write_parquet_partitioned(rows, output_dir, source_role="UNDERLYING")
 
         repo = DuckDBRepository(tmp_path)
         repo.connect()
@@ -677,7 +677,7 @@ class TestMissingDataset:
         ]
         output_dir = tmp_path / "options"
         output_dir.mkdir()
-        write_parquet_partitioned(rows, output_dir, source_role="OPTION_CHAIN")  # type: ignore[arg-type]
+        write_parquet_partitioned(rows, output_dir, source_role="OPTION_CHAIN")
 
         repo = DuckDBRepository(tmp_path)
         repo.connect()

@@ -51,23 +51,24 @@ from tailhedge.data.fixtures import (
     GF007_LAST_SAFE_DATE,
     GF007_LEAK_FEATURE_VALUE,
     GF007_UNDERLYING_PRICES,
+    OptionSnapshot,
     options_on_or_before,
     underlying_on_or_before,
 )
 
 
-def _canonical_option_row(snap: object) -> CanonicalOptionRow:
+def _canonical_option_row(snap: OptionSnapshot) -> CanonicalOptionRow:
     """Build a CanonicalOptionRow from a fixture snapshot."""
-    assert isinstance(snap.trade_date, date)
+    snapshot_ts = snap.snapshot_ts_utc or datetime(
+        snap.trade_date.year,
+        snap.trade_date.month,
+        snap.trade_date.day,
+        20,
+        45,
+        tzinfo=UTC,
+    )
     return CanonicalOptionRow(
-        snapshot_ts_utc=datetime(
-            snap.trade_date.year,
-            snap.trade_date.month,
-            snap.trade_date.day,
-            20,
-            45,
-            tzinfo=UTC,
-        ),
+        snapshot_ts_utc=snapshot_ts,
         trade_date=snap.trade_date,
         source="GF_SYNTHETIC",
         underlying_symbol="XSP",
@@ -468,7 +469,7 @@ class TestAllFixturesValidateAgainstCanonicalSchema:
             GF002_OPTION_SNAPSHOTS_EXPIRY_2,
         ],
     )
-    def test_fixture_rows_validate(self, snapshots: list[object]) -> None:
+    def test_fixture_rows_validate(self, snapshots: list[OptionSnapshot]) -> None:
         for snap in snapshots:
             row = _canonical_option_row(snap)
             assert row.bid <= row.ask
