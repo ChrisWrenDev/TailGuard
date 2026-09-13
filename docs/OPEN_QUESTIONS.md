@@ -10,8 +10,8 @@ The coding agent should proceed with the documented defaults. Some external choi
 
 ### OQ-001 — Which historical options-data vendor/file format will be used first?
 **Why it matters:** determines the first vendor-specific importer and available fields/history.  
-**Affects:** TASK-015/TASK-016, campaign coverage.  
-**Recommended default:** implement canonical CSV/Parquet importer first; add ORATS adapter if the owner obtains ORATS data, otherwise Cboe DataShop adapter. Do not block core engine on vendor selection.
+**Affects:** TASK-015/TASK-016/TASK-022–TASK-024, campaign coverage.  
+**Recommended default:** use the ORATS Near End-of-day historical archive as the primary MVP source. ORATS has confirmed SPX and SPXW coverage and that the archive is Strikes-only with an approximately 14-minute-before-close snapshot. `TASK-022` through `TASK-024` must still verify SPX-specific handling quirks, expiry settlement data, timestamp semantics, archive completeness, and internal-use terms. Use the API only as an optional acquisition pilot or supplement. Keep Cboe as a possible overlap audit source. Do not commit licensed data.
 
 ### OQ-002 — What is the exact real portfolio and benchmark mapping?
 **Why it matters:** basis risk and hedge sizing depend on holdings and beta to SPX.  
@@ -40,12 +40,12 @@ The coding agent should proceed with the documented defaults. Some external choi
 
 ### OQ-007 — Which external AI/coding agent will drive Autoresearch?
 **Why it matters:** authentication, prompt/response format, cost limits.  
-**Affects:** TASK-022.  
+**Affects:** TASK-025.  
 **Recommended default:** use `LocalCommandAgentProvider` contract so any agent can be wrapped. Use `ManualAgentProvider` in CI.
 
 ### OQ-008 — What notification channel should be used?
 **Why it matters:** broker-auth failures and manual-review states need attention.  
-**Affects:** FR-022/TASK-037.  
+**Affects:** FR-022/TASK-040.  
 **Recommended default:** in-app + structured log first; add email or another owner-selected provider through adapter without changing domain behaviour.
 
 ### OQ-009 — Where will the private production instance run?
@@ -106,4 +106,4 @@ The coding agent should proceed with the documented defaults. Some external choi
 ### OQ-020 — Backtest budget-cap semantics for the mechanical baseline
 **Why it matters:** the fixed-put (PPUT-like) baseline enforces a budget; whether the cap applies to gross premium entries or *net* option outlay (buys minus sale/settlement proceeds) changes how often rolls are permitted.  
 **Affects:** TASK-013 backtest baseline, FR-016 risk-gate configuration later.  
-**Recommended default:** net option outlay per rolling year (buys − sale/settlement proceeds) against `budget_pct × portfolio value`, as implemented in `FixedPutPolicy`; rolls that would breach the allowance are skipped and the position rides to expiry. The live risk gate (TASK-032) may choose a stricter reading.
+**Recommended default:** net option outlay per rolling year (buys − sale/settlement proceeds) against `budget_pct × portfolio value`, as implemented in `FixedPutPolicy`; rolls that would breach the allowance are skipped and the position rides to expiry. The live risk gate (TASK-035) may choose a stricter reading.

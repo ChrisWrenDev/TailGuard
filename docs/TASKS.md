@@ -197,196 +197,225 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Tests:** T-008.  
 **Order:** 21.
 
+## Real dataset qualification
+
+### TASK-022 — ORATS archive acquisition and provenance
+**Status:** pending  
+**Description:** Acquire the ORATS Near End-of-day daily ZIP archive through a resumable, one-time S3 workflow and establish immutable raw-data provenance.  
+**Requirements:** FR-002, FR-003, FR-023.  
+**Dependencies:** TASK-005, TASK-007, TASK-015.  
+**Acceptance criteria:** expected S3 object keys are captured before download; available disk and access-window preflight passes; completed objects are not unnecessarily redownloaded; raw daily ZIPs are retained and SHA-256 hashed; acquisition status and source metadata are persisted; credentials never enter the repository, database, logs, or job payloads; no licensed data is committed.  
+**Tests:** T-002 provenance subset; acquisition resume/hash tests; manual source/licence checklist.  
+**Order:** 22.
+
+### TASK-023 — ORATS SPX/SPXW filtering and canonical import
+**Status:** pending  
+**Description:** Stream acquired ORATS daily ZIPs, filter to SPX/SPXW before expansion, map paired call/put fields, and write canonical option Parquet with source provenance.  
+**Requirements:** FR-002, FR-003.  
+**Dependencies:** TASK-022.  
+**Acceptance criteria:** non-SPX/SPXW rows are excluded deterministically; paired calls and puts become separate canonical rows without cross-wiring; `spot_px` is used as the SPX cash underlying price and `stkPx` is retained only as an expiry-specific forward reference; source dates and embedded filename dates are checked; canonical partitions link to raw ZIP hashes; invalid rows are reported or quarantined rather than silently repaired.  
+**Tests:** T-002 importer/validation; ORATS mapping fixture tests; negative non-SPX and mismatched-date tests.  
+**Order:** 23.
+
+### TASK-024 — Real-data qualification gate and static backtest
+**Status:** pending  
+**Description:** Verify SPX/SPXW contract semantics, settlement coverage, timestamp policy, archive completeness, and deterministic static backtest readiness for the filtered dataset.  
+**Requirements:** FR-002, FR-003, FR-004, FR-010.  
+**Dependencies:** TASK-018–TASK-023.  
+**Acceptance criteria:** qualification status/report/version are persisted; a non-passing external dataset cannot create a real-data campaign; fatal validation checks pass for the selected interval; coverage, quote quality, timestamps, contract identity, settlement, and missing/untradeable rows are reported; static baselines and strategy evaluation pass accounting/no-look-ahead/holdout checks; identical inputs produce identical outputs; closing prices are not inferred from Near End-of-day data.  
+**Tests:** T-005, T-006, T-025; qualification integration and deterministic static-backtest tests; manual representative-date checklist.  
+**Order:** 24.
+
 ## Autoresearch and robustness
 
-### TASK-022 — AgentProvider interface and test providers
+### TASK-025 — AgentProvider interface and test providers
 **Status:** pending  
 **Description:** Add `ManualAgentProvider` and vendor-neutral `LocalCommandAgentProvider`; redact request content.  
 **Requirements:** FR-008, FR-023.  
-**Dependencies:** TASK-021.  
+**Dependencies:** TASK-021, TASK-024.  
 **Acceptance criteria:** malformed agent response fails safely; no secrets/holdout in request.  
 **Tests:** T-007, T-010, T-024 relevant.  
-**Order:** 22.
+**Order:** 25.
 
-### TASK-023 — Autoresearch campaign orchestrator
+### TASK-026 — Autoresearch campaign orchestrator
 **Status:** pending  
 **Description:** Iteration loop, parent candidate selection, keep/reject, stop limits, checkpoints.  
 **Requirements:** FR-008.  
-**Dependencies:** TASK-022.  
+**Dependencies:** TASK-025.  
 **Acceptance criteria:** 20+ deterministic test iterations resume after worker restart.  
 **Tests:** campaign integration/recovery.  
-**Order:** 23.
+**Order:** 26.
 
-### TASK-024 — Complete experiment ledger and campaign UI
+### TASK-027 — Complete experiment ledger and campaign UI
 **Status:** pending  
 **Description:** Persist every attempt/source/hash/metrics/error; Campaign/Experiment pages, filters/sorts.  
 **Requirements:** FR-009, FR-020.  
-**Dependencies:** TASK-023.  
+**Dependencies:** TASK-026.  
 **Acceptance criteria:** failed trials visible/countable; no delete-winners-only path.  
 **Tests:** T-009; UI filter tests.  
-**Order:** 24.
+**Order:** 27.
 
-### TASK-025 — Canonical robustness suite
+### TASK-028 — Canonical robustness suite
 **Status:** pending  
 **Description:** Implement required perturbations, leave-one-regime-out, basis/FX, cost/delay and dominant-event removal.  
 **Requirements:** FR-011.  
-**Dependencies:** TASK-023.  
+**Dependencies:** TASK-026.  
 **Acceptance criteria:** required test error prevents pass; full per-test report persisted.  
 **Tests:** T-011.  
-**Order:** 25.
+**Order:** 28.
 
-### TASK-026 — Synthetic crash scenario generator
+### TASK-029 — Synthetic crash scenario generator
 **Status:** pending  
 **Description:** Parameterized path generator varying depth/speed/volatility/skew/recovery without pretending to be observed historical quotes.  
 **Requirements:** FR-011.  
-**Dependencies:** TASK-010, TASK-025.  
+**Dependencies:** TASK-010, TASK-028.  
 **Acceptance criteria:** scenarios reproducible by seed/config; clearly labelled synthetic.  
 **Tests:** deterministic scenario/unit tests.  
-**Order:** 26.
+**Order:** 29.
 
-### TASK-027 — Strategy release and final-holdout workflow
+### TASK-030 — Strategy release and final-holdout workflow
 **Status:** pending  
 **Description:** Freeze immutable release, evidence report, permitted modes, one-way holdout consumption.  
 **Requirements:** FR-010, FR-012.  
-**Dependencies:** TASK-025.  
+**Dependencies:** TASK-028.  
 **Acceptance criteria:** release immutable; holdout result never enters agent feedback; consumed status durable.  
 **Tests:** T-010, T-012; E2E holdout confirmation.  
-**Order:** 27.
+**Order:** 30.
 
 ## Shadow/paper operations
 
-### TASK-028 — BrokerAdapter and FakeBroker
+### TASK-031 — BrokerAdapter and FakeBroker
 **Status:** pending  
 **Description:** Define complete broker interface and fault-programmable fake implementation.  
 **Requirements:** FR-014, FR-015, FR-017, FR-018.  
 **Dependencies:** TASK-003.  
 **Acceptance criteria:** fake simulates all documented lifecycle/failure states.  
 **Tests:** FakeBroker suite.  
-**Order:** 28.
+**Order:** 31.
 
-### TASK-029 — IBKR read-only adapter
+### TASK-032 — IBKR read-only adapter
 **Status:** pending  
 **Description:** TWS API connection/status, account summary, positions, open orders, recent executions, contracts, option chain, snapshots. No submit method enabled in this task.  
 **Requirements:** FR-014, FR-015.  
-**Dependencies:** TASK-028.  
+**Dependencies:** TASK-031.  
 **Acceptance criteria:** paper account read smoke works; pacing/reconnect handled; account alias/environment verified.  
 **Tests:** T-014/T-015 using fake; manual paper read smoke.  
-**Order:** 29.
+**Order:** 32.
 
-### TASK-030 — Portfolio configuration and broker mapping UI
+### TASK-033 — Portfolio configuration and broker mapping UI
 **Status:** pending  
 **Description:** Holdings table/mapping forms, broker sync, exposure/mapping completeness.  
 **Requirements:** FR-001, FR-014, FR-020.  
-**Dependencies:** TASK-009, TASK-029.  
+**Dependencies:** TASK-009, TASK-032.  
 **Acceptance criteria:** actual snapshot can be mapped; unmapped exposure warning visible.  
 **Tests:** T-001 UI/integration.  
-**Order:** 30.
+**Order:** 33.
 
-### TASK-031 — Deterministic target-to-intent contract selection
+### TASK-034 — Deterministic target-to-intent contract selection
 **Status:** pending  
 **Description:** Current XSP eligible-chain selection, discrete sizing, actual-vs-target delta, TailHedge position ownership rules.  
 **Requirements:** FR-013, FR-015.  
-**Dependencies:** TASK-019, TASK-028, TASK-030.  
+**Dependencies:** TASK-019, TASK-031, TASK-033.  
 **Acceptance criteria:** no silent bound relaxation; no eligible contract returns explicit reason.  
 **Tests:** contract/sizing unit tests; GF-004.  
-**Order:** 31.
+**Order:** 34.
 
-### TASK-032 — Versioned deterministic risk gate
+### TASK-035 — Versioned deterministic risk gate
 **Status:** pending  
 **Description:** Implement all FR-016 checks and risk configuration persistence/UI.  
 **Requirements:** FR-016, FR-023.  
-**Dependencies:** TASK-031.  
+**Dependencies:** TASK-034.  
 **Acceptance criteria:** every check emits observed/threshold/reason; unknown fails; malicious plan cannot create short/naked intent.  
 **Tests:** T-016, T-017; property tests.  
-**Order:** 32.
+**Order:** 35.
 
-### TASK-033 — Daily scheduler and shadow-run orchestration
+### TASK-036 — Daily scheduler and shadow-run orchestration
 **Status:** pending  
 **Description:** New-York-time scheduler, unique run key, current broker sync, strategy sandbox call, intent/risk persistence, Daily Runs UI.  
 **Requirements:** FR-013–FR-016, FR-020.  
-**Dependencies:** TASK-027, TASK-029, TASK-032.  
+**Dependencies:** TASK-030, TASK-032, TASK-035.  
 **Acceptance criteria:** one scheduled shadow run/day where eligible; DST tests; early/closed market safely skipped/blocked.  
 **Tests:** T-013–T-016; shadow E2E.  
-**Order:** 33.
+**Order:** 36.
 
-### TASK-034 — Order-intent idempotency and reconciliation engine
+### TASK-037 — Order-intent idempotency and reconciliation engine
 **Status:** pending  
 **Description:** Persistent intent keys, broker-order refs, recent-execution reconciliation, restart recovery state machine.  
 **Requirements:** FR-018.  
-**Dependencies:** TASK-028, TASK-033.  
+**Dependencies:** TASK-031, TASK-036.  
 **Acceptance criteria:** GF-008 no duplicate after ambiguous submit.  
 **Tests:** T-019, T-020; fault injection.  
-**Order:** 34.
+**Order:** 37.
 
-### TASK-035 — IBKR paper limit-order executor
+### TASK-038 — IBKR paper limit-order executor
 **Status:** pending  
 **Description:** Enable paper-only order placement, bounded limit repricing, cancel/timeouts, partial fills.  
 **Requirements:** FR-017, FR-018.  
-**Dependencies:** TASK-029, TASK-034.  
+**Dependencies:** TASK-032, TASK-037.  
 **Acceptance criteria:** paper environment hard checked; no market order; limit cap enforced; partial fills reconciled.  
 **Tests:** T-018/T-019; FakeBroker + manual IBKR paper smoke.  
-**Order:** 35.
+**Order:** 38.
 
-### TASK-036 — Kill switch and broker safety UI
+### TASK-039 — Kill switch and broker safety UI
 **Status:** pending  
 **Description:** Global kill switch, cancellations of TailHedge-owned orders, safe disengage, global status display.  
 **Requirements:** FR-021, FR-022.  
-**Dependencies:** TASK-034, TASK-035.  
+**Dependencies:** TASK-037, TASK-038.  
 **Acceptance criteria:** engagement blocks new submission immediately; no automatic position liquidation.  
 **Tests:** T-022 E2E/integration.  
-**Order:** 36.
+**Order:** 39.
 
-### TASK-037 — Notifications and audit-log UI
+### TASK-040 — Notifications and audit-log UI
 **Status:** pending  
 **Description:** Persistent required events, deduplicated critical notifications, audit filters. First notifier may be local UI/log adapter.  
 **Requirements:** FR-022.  
-**Dependencies:** TASK-005, TASK-033–TASK-036.  
+**Dependencies:** TASK-005, TASK-036–TASK-039.  
 **Acceptance criteria:** required event categories visible; duplicate outage alerts suppressed by policy.  
 **Tests:** T-023.  
-**Order:** 37.
+**Order:** 40.
 
 ## Hardening/release
 
-### TASK-038 — Security hardening and secret/redaction review
+### TASK-041 — Security hardening and secret/redaction review
 **Status:** pending  
 **Description:** CSP/security headers, import-path hardening, login backoff, sandbox regression, secret scans.  
 **Requirements:** FR-023 and security spec.  
 **Dependencies:** all prior MVP tasks.  
 **Acceptance criteria:** security tests pass; no live mode path; no arbitrary broker-order API.  
 **Tests:** security suite/T-024.  
-**Order:** 38.
+**Order:** 41.
 
-### TASK-039 — Backup/restore and operational runbook
+### TASK-042 — Backup/restore and operational runbook
 **Status:** pending  
 **Description:** PostgreSQL + artifact/data-manifest backup procedure, restore drill, IB Gateway reconnect/re-auth runbook.  
 **Requirements:** FR-014, FR-018, FR-022.  
-**Dependencies:** TASK-035.  
+**Dependencies:** TASK-038.  
 **Acceptance criteria:** test restore reproduces campaign/release/order provenance; runbook verified.  
 **Tests:** manual automated restore check where practical.  
-**Order:** 39.
+**Order:** 42.
 
-### TASK-040 — Performance/accessibility/release validation
+### TASK-043 — Performance/accessibility/release validation
 **Status:** pending  
 **Description:** Representative backtest profile, dashboard p95 checks, Playwright accessibility pass, complete traceability/test run.  
 **Requirements:** all MVP.  
-**Dependencies:** TASK-038, TASK-039.  
+**Dependencies:** TASK-041, TASK-042.  
 **Acceptance criteria:** release criteria in `TEST_STRATEGY.md` pass; no severity-1 safety defect.  
 **Tests:** full MVP suite.  
-**Order:** 40.
+**Order:** 43.
 
 ## Post-MVP — do not implement now
 
-### TASK-041 — Live approval mode `[POST-MVP]`
+### TASK-044 — Live approval mode `[POST-MVP]`
 **Status:** pending  
 **Requirements:** FR-024.  
 Prerequisites: explicit owner/product approval and live security review.
 
-### TASK-042 — Bounded autonomous live mode `[POST-MVP]`
+### TASK-045 — Bounded autonomous live mode `[POST-MVP]`
 **Status:** pending  
 **Requirements:** FR-025.  
 Prerequisites: successful approval-mode period and new go/no-go decision.
 
-### TASK-043 — Intraday crash monitor and intraday historical evaluator `[FUTURE]`
+### TASK-046 — Intraday crash monitor and intraday historical evaluator `[FUTURE]`
 **Status:** pending  
 **Requirements:** FR-026.  
 Prerequisite: intraday dataset and evidence that daily-only system justifies added complexity.

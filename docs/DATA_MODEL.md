@@ -168,6 +168,9 @@ Index `(broker_snapshot_id, instrument_key)`.
 | manifest_sha256 | char(64) | yes | unique immutable identity |
 | storage_uri | text | yes | local path/object URI, not public URL |
 | status | text | yes | `INGESTING`, `VALIDATING`, `READY`, `BLOCKED`, `ARCHIVED` |
+| qualification_status | text | yes | `NOT_REQUIRED`, `PENDING`, `PASSED`, `FAILED` |
+| qualification_report_uri | text | no | provider-specific report artifact |
+| qualification_version | text | no | qualification rules/profile version |
 | created_at | timestamptz | yes | |
 
 Unique `manifest_sha256`.
@@ -182,9 +185,14 @@ Unique `manifest_sha256`.
 | sha256 | char(64) | yes |
 | byte_size | bigint | yes |
 | row_count | bigint | no |
-| source_role | text | yes |
+| source_role | text | yes | `RAW_ARCHIVE`, `CANONICAL_OPTIONS`, `EXPIRY_SETTLEMENT`, or other explicit artifact role |
 
 Unique `(dataset_id, relative_path)`.
+
+For a bulk daily archive, each retained source ZIP is a `RAW_ARCHIVE` file.
+Filtered canonical Parquet and expiry-settlement artifacts are separate file
+records linked to the same dataset and to the source hashes recorded in the
+qualification report.
 
 ### 3.3 `dataset_validation_result`
 
@@ -198,7 +206,24 @@ Unique `(dataset_id, relative_path)`.
 | report_artifact_uri | text | no |
 | created_at | timestamptz | yes |
 
-### 3.4 Canonical option Parquet schema
+### 3.4 `dataset_qualification_result`
+
+Provider-specific qualification is append-oriented and is distinct from the
+generic validation report. A dataset may have multiple qualification attempts
+under different qualification-profile versions, but only a `PASSED` result may
+authorize real-data campaign use.
+
+| Field | Type | Required |
+|---|---|---:|
+| id | uuid | yes |
+| dataset_id | uuid | yes |
+| qualification_version | text | yes |
+| status | text | yes | `PASS`, `WARN`, `FAIL` |
+| summary_json | jsonb | yes |
+| report_artifact_uri | text | no |
+| created_at | timestamptz | yes |
+
+### 3.5 Canonical option Parquet schema
 
 Required columns:
 
@@ -226,12 +251,50 @@ vega                      nullable float
 source_contract_id        nullable string
 ```
 
+For the real SPX qualification slice (`TASK-022` through `TASK-024`), the canonical schema also
+requires the following contract semantics. These must be mapped from verified
+source metadata rather than assumed from a ticker string:
+
+```text
+expiration_type           enum(STANDARD,WEEKLY,OTHER)
+contract_multiplier       int
+settlement_type           enum(CASH)
+exercise_style            enum(EUROPEAN)
+settlement_style          enum(AM,PM,UNKNOWN)
+currency                  string
+dte_calendar              int16          # derived from expiration - trade date
+```
+
+`root_symbol` must preserve distinct roots such as `SPX` and `SPXW`. A paired
+vendor row must produce separate call and put rows. Vendor Greeks may only be
+copied to a canonical side after their side and sign conventions are verified.
+The real-dataset qualification rules are defined in
+`docs/DATASET_QUALIFICATION.md`.
+
 Canonical uniqueness within a dataset:
 `(snapshot_ts_utc, root_symbol, expiration_date, strike, option_type)`.
 
 Derived analytics are stored in separate derived Parquet artifacts keyed by dataset + transform version; do not rewrite canonical source columns.
 
-### 3.5 Canonical underlying/portfolio series Parquet
+### 3.6 Option expiry settlement artifact
+
+Expiry settlement values are stored separately from ordinary quotes:
+
+```text
+root_symbol               string
+expiration_date           date
+settlement_ts_utc         timestamp[us, UTC]
+settlement_style          enum(AM,PM)
+settlement_value          float
+settlement_type           enum(CASH)
+source                    string
+```
+
+An evaluator may not substitute the last quote or an underlying close when a
+required official settlement value is absent. It must exclude the affected
+expiry trade or fail closed under the campaign policy.
+
+### 3.7 Canonical underlying/portfolio series Parquet
 
 ```text
 timestamp_utc             timestamp[us, UTC]
@@ -519,6 +582,7 @@ portfolio 1 ── * holding_definition
 portfolio 1 ── * portfolio_valuation_snapshot 1 ── * portfolio_position_snapshot
 broker_account 1 ── * broker_snapshot 1 ── * broker_position_snapshot
 research_dataset 1 ── * research_campaign 1 ── * experiment_run
+research_dataset 1 ── * dataset_qualification_result
 experiment_run 1 ── * robustness_run
 experiment_run 1 ── * strategy_release
 strategy_release 1 ── * daily_run
@@ -559,6 +623,11 @@ Research dataset content referenced by a campaign is immutable. Corrections crea
 
 ### INV-010 — Money/currency explicit
 No arithmetic combines values in different currencies without an explicit FX rate/source/timestamp.
+
+### INV-011 — Real-data qualification before campaign use
+A campaign using an external dataset must reference a dataset with a passing
+provider-specific qualification result for the selected qualification profile.
+Generic ingestion validation alone is insufficient.
 
 ## 9. Soft deletion strategy
 

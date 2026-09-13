@@ -102,6 +102,45 @@ FR-002–FR-007, FR-010.
 
 ---
 
+## Phase 2.5 — First real SPX dataset qualification
+
+### Goal
+
+Prove that the first external options source is semantically and operationally
+fit for SPX research before allowing real-data campaign conclusions.
+
+### Tasks
+
+- Qualify the supplied ORATS CSV shape without treating its generic sample as SPX data.
+- Record the explicit ORATS column and contract-semantics mapping.
+- Acquire the ORATS daily ZIP archive through a resumable, one-time S3 workflow with no credential persistence.
+- Filter raw daily files to SPX/SPXW before expanding paired sides and writing canonical Parquet.
+- Verify SPX/SPXW identity, snapshot timing, quote fields, Greeks, and settlement semantics.
+- Produce canonical option and expiry-settlement artifacts with immutable provenance.
+- Run the fatal validation gate and a representative-date coverage report.
+- Run static baselines and a static strategy through the controlled evaluator.
+- Re-run from identical hashes and verify deterministic metrics/artifacts.
+
+### Dependencies
+
+Phase 2.
+
+### Relevant requirements
+
+FR-002, FR-003, FR-004, FR-010.
+
+### Definition of done
+
+- `TASK-024` qualification report is `PASS` for the selected research interval.
+- Raw archive files are retained locally, content-hashed, and linked to filtered canonical partitions.
+- Missing, untradeable, and semantically unknown rows are quantified and never silently repaired.
+- Required expiry settlement values are present or affected trades fail closed.
+- No-look-ahead, holdout-isolation, and accounting checks pass.
+- The dataset, evaluator, split, cost, and strategy hashes are persisted.
+- The source/licence/API decision is recorded without committing licensed data or credentials.
+
+---
+
 ## Phase 3 — Autoresearch loop and experiment ledger
 
 ### Goal
@@ -120,7 +159,7 @@ Implement the autonomous iterative research mechanism while preserving evaluator
 - Resource/iteration stop conditions.
 
 ### Dependencies
-Phase 2.
+Phase 2.5.
 
 ### Relevant requirements
 FR-006–FR-010, FR-020, FR-022.

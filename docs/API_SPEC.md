@@ -118,7 +118,7 @@ Response `202`: dataset ID + import job ID.
 Errors: `FILE_OUTSIDE_INGEST_ROOT`, `UNSUPPORTED_SCHEMA`, `DATASET_DUPLICATE_MANIFEST`.
 
 ### `GET /datasets`
-List datasets and health state.
+List datasets with generic health and provider-qualification state.
 
 ### `GET /datasets/{dataset_id}`
 Dataset manifest and summary.
@@ -128,6 +128,17 @@ Validation results, fatal errors/warnings, coverage stats.
 
 ### `POST /datasets/{dataset_id}/validate`
 Queues re-validation with current validator version. Does not mutate data.
+
+### `GET /datasets/{dataset_id}/qualification`
+Returns the provider-specific qualification status, profile version, report
+artifact reference, fatal checks, warnings, coverage summary, and evidence
+hashes. A generic `READY` validation state does not imply qualification `PASS`.
+
+### `POST /datasets/{dataset_id}/qualify`
+Queues the configured provider-specific qualification profile. The operation
+does not mutate raw or canonical dataset content. A qualification failure
+blocks the dataset from real-data campaign use until a new immutable result
+passes.
 
 ## 5. Research campaigns
 
@@ -140,6 +151,7 @@ Request includes dataset ID, proxy config, split config, scoring profile, execut
 
 Validation:
 - dataset must be `READY` or explicit warnings accepted;
+- external datasets must also have a passing provider-specific qualification result;
 - final holdout must not overlap train/validation;
 - purge horizon must satisfy configured minimum;
 - annual premium cap > 0 and within application safety configuration;
@@ -148,7 +160,7 @@ Validation:
 ### `POST /campaigns/{id}/start`
 Freezes/hash campaign config, transitions to `RUNNING`, creates research job.
 
-Errors: `CAMPAIGN_NOT_DRAFT`, `DATASET_NOT_READY`, `CONFIG_HASH_FAILED`.
+Errors: `CAMPAIGN_NOT_DRAFT`, `DATASET_NOT_READY`, `DATASET_NOT_QUALIFIED`, `CONFIG_HASH_FAILED`.
 
 ### `POST /campaigns/{id}/pause`
 Requests cooperative pause after current experiment persists.
@@ -398,6 +410,7 @@ BROKER_AUTH_REQUIRED
 BROKER_STATE_INCOMPLETE
 BROKER_ENVIRONMENT_MISMATCH
 DATASET_NOT_READY
+DATASET_NOT_QUALIFIED
 DATA_VALIDATION_FAILED
 STRATEGY_TIMEOUT
 STRATEGY_OUTPUT_INVALID

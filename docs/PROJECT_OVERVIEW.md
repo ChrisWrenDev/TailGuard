@@ -174,7 +174,9 @@ As of 2026-09-12:
 
 - Cboe documents XSP as 1/10 of SPX, $100 multiplier, cash-settled, European exercise, with regular hours extending to 15:15 Chicago time for non-expiring contracts.
 - Cboe DataShop Option EOD Summary provides a 15:45 US Eastern snapshot and end-of-day data, with historical coverage from January 2012; IV/Greeks are optional calculated fields.
-- ORATS documents historical end-of-day option data back to 2007.
+- ORATS documents historical end-of-day option data back to 2007; the project
+  uses its Near End-of-day archive as the primary qualification source, subject
+  to SPX handling, settlement, licensing, and deterministic import checks.
 - IBKR documents API access for market/account data and order placement; current IBKR documentation states expired-options historical market data is unavailable through its normal interfaces.
 - IBKR documents that TWS/IB Gateway require GUI authentication, can auto-restart during the week, and generally need re-authentication after the weekend reset.
 

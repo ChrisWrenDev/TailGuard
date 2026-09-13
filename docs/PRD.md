@@ -21,7 +21,8 @@ No adviser/client, admin/member, or public-user roles exist in MVP.
 1. Owner creates or selects a research dataset.
 2. Owner imports historical option-chain files and underlying/portfolio series.
 3. System validates timestamps, duplicates, bid/ask sanity, contract identity, missingness, and coverage.
-4. System produces a data-health report and refuses campaign creation if required invariants fail.
+4. For external SPX research, the system runs provider-specific qualification and verifies settlement semantics and representative coverage.
+5. System produces data-health and qualification reports and refuses campaign creation if required invariants fail.
 
 ### J-002 — Run a research campaign
 1. Owner chooses dataset, portfolio proxy, allowed features, budget cap, baseline set, train/validation/holdout partition policy, and fixed evaluator profile.
@@ -75,6 +76,7 @@ Required canonical fields: trade date/time, underlying/root, expiration, strike,
 - CSV and Parquet import are supported through a common importer interface.
 - Vendor-specific columns are transformed without changing raw source files.
 - Imported dataset has a manifest containing source, date range, row count, schema version, file hashes, and timezone.
+- A provider-specific qualification report records the source mapping, observed timestamp semantics, and unresolved assumptions before the dataset is used for real-data research.
 
 ### FR-003 — Historical data validation `[MVP]`
 The system shall validate research data before it can be used in a campaign.
@@ -85,6 +87,7 @@ Mandatory checks: unique contract snapshot key, bid >= 0, ask >= bid for tradabl
 - Fatal validation errors block campaign use.
 - Warnings are quantified by date and field.
 - The health report is persisted and reproducible.
+- SPX research datasets additionally verify root identity, contract settlement metadata, expiry settlement coverage, and side-specific field mappings before backtest use.
 
 ### FR-004 — Deterministic backtest engine `[MVP]`
 The system shall simulate the combined portfolio using only information available at each historical decision timestamp.
@@ -346,6 +349,7 @@ Research strategy/agent processes are **not users** and receive capability-limit
 
 - No dataset: guide owner to import data; research actions disabled.
 - Dataset invalid: show failing checks and affected dates/rows; campaigns disabled for that dataset.
+- Dataset not qualified: show the qualification report and keep real-data campaign actions disabled.
 - No campaign: show baseline research start action.
 - No strategy release: shadow/paper execution disabled.
 - Broker unauthenticated: show `BROKER_OFFLINE`; scheduled run records failure; no orders.

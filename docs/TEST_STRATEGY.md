@@ -55,6 +55,9 @@ Use PostgreSQL test container and real Parquet/DuckDB fixtures.
 
 Required:
 - CSV -> canonical Parquet -> manifest -> validation;
+- ORATS-format sample mapping and real-SPX qualification report;
+- resumable archive acquisition, raw ZIP hashing, and SPX/SPXW filtering;
+- contract settlement metadata and expiry-settlement coverage;
 - campaign freeze immutability;
 - worker job lease/recovery;
 - experiment persistence after evaluator result;
@@ -132,6 +135,7 @@ Fake broker receives order but client process “crashes” before acknowledgeme
 | T-022 | FR-021 | Kill switch blocks all new submissions and does not auto-liquidate positions. |
 | T-023 | FR-022 | Required operational events persist and critical notifications deduplicate. |
 | T-024 | FR-023 | Secrets never appear in config serialization/log snapshot tests. |
+| T-025 | FR-002, FR-003, FR-004, FR-010 | Real-dataset qualification acquires and hashes raw daily objects, filters SPX/SPXW with source provenance, and produces complete fatal-check, settlement, no-look-ahead, and deterministic static-backtest evidence. |
 
 ## 5. Research-engine correctness tests
 
@@ -140,19 +144,38 @@ Instrument the strategy context so every row/feature has an `as_of` timestamp. T
 
 Any precomputed feature must record its maximum source timestamp. Feature pipeline fails if it crosses decision time.
 
-### 5.2 Split leakage
+### 5.2 Real-dataset qualification
+
+The qualification fixture may exercise the ORATS paired call/put CSV shape, but
+licensed external data must not be committed to CI. The manual/controlled
+qualification run must additionally prove:
+
+- the selected source actually contains the intended SPX/SPXW roots;
+- side-specific prices, sizes, volume, open interest, and Greeks are mapped correctly;
+- observed snapshot timestamps and timezone semantics are recorded;
+- contract multiplier, exercise, settlement, and expiration semantics are verified;
+- official expiry settlement coverage exists for all expiry trades used;
+- missing/untradeable rows are reported rather than silently repaired;
+- the qualification and static backtest can be repeated from identical hashes.
+
+The supplied samples under `data/` are local and ignored. The generic
+`ORATS_SMV_Strikes_20240103.csv` is not evidence of SPX coverage; the
+`SMVquotesSPX20150717snippet.csv` file provides a one-date SPX format fixture
+but is not sufficient historical coverage for a qualified backtest.
+
+### 5.3 Split leakage
 For each fold:
 - positions opened in train may not leak future realized outcome into validation selection;
 - purge horizon removes overlapping holding/lookback dependencies per campaign config;
 - final holdout is physically excluded from campaign evaluator mounts.
 
-### 5.3 Fill model
+### 5.4 Fill model
 Test bid/ask fractions exactly and mandatory stress variants. A zero/crossed/missing quote follows explicit data-quality/tradability rule, never silent midpoint substitution.
 
-### 5.4 Metrics
+### 5.5 Metrics
 Compare CAGR and max drawdown against independent hand/third-party calculations on tiny fixtures. Use explicit annualisation convention and document it in code/tests.
 
-### 5.5 Multiple research attempts
+### 5.6 Multiple research attempts
 Ensure ledger includes every attempted candidate and summary trial count cannot be filtered to winners for canonical evidence report.
 
 ## 6. Strategy sandbox tests
@@ -282,7 +305,7 @@ Before MVP release/paper operation, additionally require:
 - full unit/integration suite;
 - critical Playwright E2E suite;
 - evaluator sandbox security suite;
-- all T-001 through T-024 applicable to MVP;
+- all T-001 through T-025 applicable to MVP;
 - FakeBroker fault-injection suite;
 - manual IBKR paper smoke test;
 - restore/recovery drill from a test backup;

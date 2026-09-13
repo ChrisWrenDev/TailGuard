@@ -21,8 +21,17 @@ This document defines cross-component workflows. Each workflow names trigger, pr
 7. Validation report is persisted.
 8. Dataset becomes `READY` (possibly warnings) or `BLOCKED`.
 
+For the first external SPX source, the `TASK-022` through `TASK-024`
+qualification slice then runs the provider-specific gate from
+`docs/DATASET_QUALIFICATION.md`. Generic parse success
+does not establish SPX research readiness. Qualification may block real-data
+backtests when root identity, timestamp semantics, contract settlement, expiry
+settlements, or required coverage is unknown.
+
 **Data changes**
-`research_dataset`, `dataset_file`, `dataset_validation_result`, Parquet files, manifest artifact, audit events.
+`research_dataset`, `dataset_file`, `dataset_validation_result`,
+`dataset_qualification_result` when applicable, Parquet files, manifest
+artifact, audit events.
 
 **External calls**
 None required if files are local. Vendor API download is an optional adapter, not part of this core workflow.

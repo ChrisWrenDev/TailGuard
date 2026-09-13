@@ -109,6 +109,7 @@ No nested navigation deeper than two levels in MVP.
 
 **Components**
 - Dataset list with vendor/source, date range, rows, schema version, health state.
+- Provider qualification state and link to the qualification report.
 - Import action.
 - Data-health report: duplicates, missing dates, crossed quotes, zero bids, field coverage, contract counts by date, underlying coverage.
 - Manifest/hash detail.
@@ -126,6 +127,7 @@ No nested navigation deeper than two levels in MVP.
 - Validating.
 - Ready with warnings.
 - Blocked/fatal.
+- Imported but not qualified for real-data research.
 
 ### UX-005 — Research campaigns
 
@@ -137,6 +139,7 @@ ID/name, dataset, status, iterations, created, best validation score, experiment
 **Create campaign form**
 - name/description;
 - dataset;
+- dataset qualification must be `PASSED` for external real-data campaigns;
 - portfolio proxy;
 - train/validation period policy;
 - final holdout period;

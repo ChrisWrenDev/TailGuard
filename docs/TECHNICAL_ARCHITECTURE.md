@@ -211,18 +211,33 @@ User-provided licensed files are immutable. On import:
 - calculate SHA-256 for every file;
 - never overwrite an existing file under the same manifest identity.
 
+For the ORATS Near End-of-day archive, the raw layer consists of the daily
+S3-delivered ZIP files. Acquisition is resumable but intentionally one-time:
+the object list is recorded before download, completed objects are not fetched
+again unnecessarily, and credentials remain in the local secret mechanism.
+Canonical processing streams one daily ZIP at a time and filters to SPX/SPXW
+before expanding paired call/put rows. Every filtered partition links back to
+the raw ZIP hashes.
+
+The first external-source qualification is defined in
+`docs/DATASET_QUALIFICATION.md`. The supplied ORATS sample remains local and
+ignored; it is a format fixture and is not evidence of SPX coverage.
+
 ### 7.2 Canonical Parquet
 Partition recommendation:
 
 ```text
 data/normalized/<dataset_id>/options/
-  underlying=SPX/year=2020/month=03/*.parquet
+  underlying=SPX/root=SPX/year=2020/month=03/*.parquet
+  underlying=SPX/root=SPXW/year=2020/month=03/*.parquet
 
 data/normalized/<dataset_id>/underlying/
   year=2020/*.parquet
 ```
 
-Canonical option snapshot fields are defined in `DATA_MODEL.md`.
+Canonical option snapshot fields are defined in `DATA_MODEL.md`. SPX contract
+settlement semantics and expiry settlement artifacts are required before a
+dataset can pass the real-data qualification gate.
 
 ### 7.3 DuckDB
 DuckDB queries Parquet in place. Do not duplicate full chain history into PostgreSQL. Persist only manifests, dataset health, campaign metadata, experiment metrics, and selected trade/equity curves in Postgres or compact artifacts.

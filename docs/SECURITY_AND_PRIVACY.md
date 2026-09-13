@@ -80,6 +80,8 @@ Not secret but integrity-critical:
 - Parse with explicit schemas; do not execute macros or embedded content.
 - Treat CSV/Parquet strings as data, not commands.
 - Hash all source files.
+- Historical-source credentials are supplied through the local secret mechanism only; never store them in dataset manifests, job payloads, logs, or strategy contexts.
+- Bulk archive acquisition must use a resumable, bounded workflow to avoid uncontrolled repeated vendor downloads.
 
 ### HTTP/API
 - Pydantic validation for all request bodies.
