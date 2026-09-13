@@ -74,7 +74,7 @@ def auth_db() -> Generator[sessionmaker[Session], None, None]:
 
 @pytest.fixture
 def auth_db_with_datasets() -> Generator[sessionmaker[Session], None, None]:
-    """Auth fixture with dataset tables for data page tests.
+    """Auth fixture with dataset and campaign tables for research page tests.
 
     Uses PostgreSQL (from TAILHEDGE_TEST_DATABASE_URL) or skips.
     """

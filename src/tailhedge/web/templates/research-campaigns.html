@@ -23,12 +23,42 @@
 
     <section class="card" aria-labelledby="campaigns">
         <h2 id="campaigns" class="card__title">Campaigns</h2>
+        {% if campaigns %}
+        <p class="alert alert--warning">Campaign scoring, splits, and cost rules become immutable after start.</p>
+        <div class="table-responsive">
+        <table class="table" aria-label="Research campaigns">
+            <thead>
+                <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Max iterations</th>
+                    <th scope="col">Created</th>
+                    <th scope="col">Manifest</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in campaigns %}
+                <tr>
+                    <td>{{ c.name }}</td>
+                    <td>{{ c.status }}</td>
+                    <td>{{ c.max_iterations if c.max_iterations is not none else "—" }}</td>
+                    <td>{{ c.created_at[:10] }}</td>
+                    <td>{% if c.manifest_sha256 %}{{ c.manifest_sha256[:16] }}…{% else %}not frozen{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
         <div class="empty-state" role="status">
             <p class="empty-state__text">No research campaigns yet.</p>
-            <p class="empty-state__actions">
-                <a href="/research/campaigns/new" class="button button--primary">Create Campaign</a>
-            </p>
         </div>
+        {% endif %}
+        <p class="empty-state__actions">
+            <a href="/research/campaigns/new" class="button button--primary">Create Campaign</a>
+        </p>
+        <p class="alert alert--info"><strong>Note:</strong> campaign scoring, splits, and cost rules become
+        immutable after start; changing configuration requires cloning the campaign.</p>
     </section>
 </div>
 {% endblock %}

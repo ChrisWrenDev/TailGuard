@@ -192,6 +192,7 @@ class TestPortfolioPage:
 
 
 class TestResearchPages:
+    @pytest.mark.usefixtures("auth_db_with_datasets")
     def test_campaigns_page_renders(self) -> None:
         auth = _auth_client()
         resp = auth.get("/research/campaigns")
@@ -431,6 +432,7 @@ class TestAccessibility:
         assert 'autocomplete="username"' in resp.text
         assert 'autocomplete="current-password"' in resp.text
 
+    @pytest.mark.usefixtures("auth_db_with_datasets")
     def test_sub_navigation_aria_labels(self) -> None:
         auth = _auth_client()
         resp = auth.get("/research/campaigns")

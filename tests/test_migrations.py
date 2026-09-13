@@ -40,7 +40,10 @@ def scratch_db(
     assert TEST_DATABASE_URL is not None
     base_url = make_url(TEST_DATABASE_URL)
     scratch_name = f"tailhedge_migration_{uuid.uuid4().hex[:8]}"
-    scratch_url = base_url.set(database=scratch_name)
+    # str(URL) masks the password; render the real password for env.py.
+    scratch_url = base_url.set(database=scratch_name).render_as_string(
+        hide_password=False
+    )
 
     admin = create_engine(TEST_DATABASE_URL, isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
@@ -81,7 +84,7 @@ def test_fresh_database_migrates(
         version = conn.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one()
-    assert version == "001"
+    assert version == "003"
 
 
 def test_fresh_database_downgrade(

@@ -6,9 +6,12 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -277,3 +280,69 @@ class DatasetValidationResult(Base):
     )
 
     dataset: Mapped[ResearchDataset] = relationship(back_populates="validation_results")
+
+
+# ---------------------------------------------------------------------------
+# research_campaign — frozen autoresearch campaign configuration (FR-007)
+# ---------------------------------------------------------------------------
+
+
+class ResearchCampaign(Base):
+    __tablename__ = "research_campaign"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dataset_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("research_dataset.id"), nullable=False
+    )
+    portfolio_proxy_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False
+    )
+    split_config_json: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    scoring_profile_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False
+    )
+    execution_cost_profile_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False
+    )
+    robustness_profile_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False
+    )
+    feature_allowlist_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False
+    )
+    strategy_bounds_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False
+    )
+    agent_config_redacted_json: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False
+    )
+    evaluator_version: Mapped[str] = mapped_column(Text, nullable=False)
+    campaign_manifest_sha256: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True
+    )
+    evaluator_image_digest: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="DRAFT")
+    max_iterations: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    annual_premium_cap: Mapped[float | None] = mapped_column(Float, nullable=True)
+    cloned_from_campaign_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("research_campaign.id"), nullable=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_research_campaign_status",
+            "status",
+        ),
+    )

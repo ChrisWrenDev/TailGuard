@@ -189,7 +189,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 20.
 
 ### TASK-021 — Campaign model, frozen config, scoring profile
-**Status:** pending  
+**Status:** completed  
 **Description:** Campaign CRUD/start with immutable hashed evaluator/split/cost/score config and default score from architecture spec.  
 **Requirements:** FR-007.  
 **Dependencies:** TASK-003, TASK-018, TASK-020.  

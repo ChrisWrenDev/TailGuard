@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
+from uuid import UUID
 
 from fastapi import Depends, FastAPI, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -220,10 +221,34 @@ async def portfolio_page(
 @app.get("/research/campaigns", response_class=HTMLResponse)
 async def research_campaigns(
     request: Request,
-    _session_id: Annotated[str, Depends(require_auth)],
+    session_id: Annotated[str, Depends(require_auth)],
+    db: SessionDep,
 ) -> HTMLResponse:
+    """Campaign list page with live campaign rows."""
+    from tailhedge.research.campaign_service import list_campaigns
+
+    campaigns = list_campaigns(db)
+    campaign_list = [
+        {
+            "id": str(c.id),
+            "name": c.name,
+            "status": c.status,
+            "dataset_id": str(c.dataset_id),
+            "max_iterations": c.max_iterations,
+            "created_at": c.created_at.isoformat(),
+            "manifest_sha256": c.campaign_manifest_sha256,
+        }
+        for c in campaigns
+    ]
     return templates.TemplateResponse(
-        request, "research-campaigns.html", _page_context(request, "research")
+        request,
+        "research-campaigns.html",
+        _page_context(
+            request,
+            "research",
+            campaigns=campaign_list,
+            csrf_token=generate_csrf_token(session_id),
+        ),
     )
 
 
@@ -663,3 +688,316 @@ async def data_import_form(
             csrf_token=generate_csrf_token(session_id),
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Campaign API (FR-007, TASK-021)
+# ---------------------------------------------------------------------------
+
+
+def _campaign_to_api_dict(campaign: object) -> dict[str, object]:
+    """Serialise a ResearchCampaign for the JSON API (immutable fields marked)."""
+    from tailhedge.research.campaign_config import IMMUTABLE_CONFIG_FIELDS
+
+    c: Any = campaign
+    data: dict[str, object] = {
+        "id": str(c.id),
+        "name": c.name,
+        "description": c.description,
+        "status": c.status,
+        "dataset_id": str(c.dataset_id),
+        "created_at": c.created_at.isoformat(),
+        "started_at": c.started_at.isoformat() if c.started_at else None,
+        "ended_at": c.ended_at.isoformat() if c.ended_at else None,
+        "cloned_from_campaign_id": (
+            str(c.cloned_from_campaign_id) if c.cloned_from_campaign_id else None
+        ),
+    }
+    for field_name in IMMUTABLE_CONFIG_FIELDS:
+        value = getattr(c, field_name)
+        if isinstance(value, UUID):
+            value = str(value)
+        data[field_name] = {"value": value, "immutable": True}
+    data["campaign_manifest_sha256"] = c.campaign_manifest_sha256
+    return data
+
+
+@app.get("/api/v1/campaigns")
+async def api_list_campaigns(
+    _session_id: Annotated[str, Depends(require_auth)],
+    db: SessionDep,
+    status_filter: str | None = None,
+    dataset_id: str | None = None,
+) -> dict[str, object]:
+    """List campaigns with optional status/dataset filters (API_SPEC §5)."""
+    from tailhedge.research.campaign_service import list_campaigns
+
+    dataset_uuid: UUID | None = None
+    if dataset_id is not None:
+        try:
+            dataset_uuid = UUID(dataset_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid dataset ID format.",
+            ) from exc
+
+    campaigns = list_campaigns(db, status=status_filter, dataset_id=dataset_uuid)
+    return {
+        "campaigns": [_campaign_to_api_dict(c) for c in campaigns],
+        "count": len(campaigns),
+    }
+
+
+@app.get("/api/v1/campaigns/{campaign_id}")
+async def api_get_campaign(
+    campaign_id: str,
+    _session_id: Annotated[str, Depends(require_auth)],
+    db: SessionDep,
+) -> dict[str, object]:
+    """Return one campaign with config/status; immutable fields marked."""
+    from tailhedge.research.campaign_service import get_campaign
+
+    try:
+        campaign_uuid = UUID(campaign_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid campaign ID format.",
+        ) from exc
+    campaign = get_campaign(db, campaign_uuid)
+    if campaign is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found.",
+        )
+    return _campaign_to_api_dict(campaign)
+
+
+@app.post("/api/v1/campaigns")
+async def api_create_campaign(
+    request: Request,
+    _session_id: Annotated[str, Depends(require_csrf)],
+    db: SessionDep,
+) -> dict[str, object]:
+    """Create a DRAFT campaign (API_SPEC §5).
+
+    Body: JSON with ``name``, ``dataset_id`` and optional frozen-config
+    overrides.  Defaults come from the architecture spec.
+    """
+
+    from tailhedge.research.campaign_config import CampaignConfigError
+    from tailhedge.research.campaign_service import (
+        create_campaign,
+        default_campaign_config,
+    )
+
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body must be valid JSON.",
+        ) from exc
+    if not isinstance(body, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Request body must be a JSON object.",
+        )
+
+    name = body.get("name")
+    dataset_id_raw = body.get("dataset_id")
+    if not name or not dataset_id_raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="'name' and 'dataset_id' are required.",
+        )
+    try:
+        dataset_uuid = UUID(str(dataset_id_raw))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid dataset ID format.",
+        ) from exc
+
+    override_fields = (
+        "portfolio_proxy_json",
+        "split_config_json",
+        "scoring_profile_json",
+        "execution_cost_profile_json",
+        "robustness_profile_json",
+        "feature_allowlist_json",
+        "strategy_bounds_json",
+        "agent_config_redacted_json",
+    )
+    override_kwargs: dict[str, dict[str, object]] = {
+        field_name: body[field_name]
+        for field_name in override_fields
+        if field_name in body
+    }
+    max_iterations = body.get("max_iterations")
+
+    annual_premium_cap_raw = body.get("annual_premium_cap")
+    try:
+        annual_premium_cap = (
+            float(annual_premium_cap_raw)
+            if annual_premium_cap_raw is not None
+            else None
+        )
+        max_iterations_value = (
+            int(max_iterations) if max_iterations is not None else None
+        )
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'annual_premium_cap' must be a number and "
+            "'max_iterations' must be an integer.",
+        ) from exc
+
+    try:
+        config = default_campaign_config(
+            dataset_id=dataset_uuid,
+            annual_premium_cap=annual_premium_cap,
+            max_iterations=max_iterations_value,
+            **override_kwargs,
+        )
+        campaign = create_campaign(
+            db,
+            name=str(name),
+            dataset_id=dataset_uuid,
+            config=config,
+            description=(str(body["description"]) if body.get("description") else None),
+        )
+    except CampaignConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return _campaign_to_api_dict(campaign)
+
+
+@app.post("/api/v1/campaigns/{campaign_id}/start")
+async def api_start_campaign(
+    campaign_id: str,
+    _session_id: Annotated[str, Depends(require_csrf)],
+    db: SessionDep,
+) -> dict[str, object]:
+    """Freeze config and start a DRAFT campaign (API_SPEC §5).
+
+    Errors: ``CAMPAIGN_NOT_DRAFT``, ``DATASET_NOT_READY``, ``CONFIG_HASH_FAILED``.
+    """
+    import uuid as uuid_mod
+
+    from tailhedge.research.campaign_config import CampaignStateError
+    from tailhedge.research.campaign_service import (
+        CampaignManifestConflictError,
+        CampaignNotFoundError,
+        DatasetNotReadyError,
+        start_campaign,
+    )
+
+    try:
+        campaign_uuid = uuid_mod.UUID(campaign_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid campaign ID format.",
+        ) from exc
+
+    try:
+        campaign = start_campaign(db, campaign_uuid)
+    except CampaignNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found.",
+        ) from exc
+    except CampaignStateError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="CAMPAIGN_NOT_DRAFT",
+        ) from exc
+    except DatasetNotReadyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="DATASET_NOT_READY",
+        ) from exc
+    except CampaignManifestConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="CONFIG_HASH_FAILED",
+        ) from exc
+
+    return _campaign_to_api_dict(campaign)
+
+
+@app.post("/api/v1/campaigns/{campaign_id}/clone")
+async def api_clone_campaign(
+    campaign_id: str,
+    request: Request,
+    _session_id: Annotated[str, Depends(require_csrf)],
+    db: SessionDep,
+) -> dict[str, object]:
+    """Clone a campaign into a new DRAFT campaign (FR-007 clone path).
+
+    Optional JSON body: ``name`` and ``config_overrides`` (a mapping of
+    frozen config field names to replacement values).  Without a body the
+    full configuration is copied unchanged.
+    """
+    import uuid as uuid_mod
+
+    from tailhedge.research.campaign_config import CampaignConfigError
+    from tailhedge.research.campaign_service import (
+        CampaignNotFoundError,
+        clone_campaign,
+    )
+
+    try:
+        campaign_uuid = uuid_mod.UUID(campaign_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid campaign ID format.",
+        ) from exc
+
+    body: dict[str, object] = {}
+    try:
+        raw_body = await request.json()
+    except Exception:
+        raw_body = None
+    if raw_body is not None:
+        if not isinstance(raw_body, dict):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Request body must be a JSON object.",
+            )
+        body = raw_body
+
+    name = body.get("name")
+    config_overrides = body.get("config_overrides")
+    if config_overrides is not None and not isinstance(config_overrides, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="'config_overrides' must be a JSON object of frozen "
+            "config field names to values.",
+        )
+
+    try:
+        clone = clone_campaign(
+            db,
+            campaign_uuid,
+            name=str(name) if name else None,
+            config_overrides=dict(config_overrides) if config_overrides else None,
+        )
+    except CampaignNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found.",
+        ) from exc
+    except CampaignConfigError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    return _campaign_to_api_dict(clone)
