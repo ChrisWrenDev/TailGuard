@@ -14,6 +14,10 @@ the TargetHedgePlan result to /result/output.json, and exits.
 Security measures:
 - Only /workspace (strategy source) and /data (allowed data slice) are
   readable; broker/config/secrets/holdout paths are never mounted.
+- Only explicitly enabled StrategyContext features are placed in the
+  context; data for disabled features is stripped at this boundary.
+- The returned TargetHedgePlan is schema-validated and checked for
+  prohibited fields before it is emitted.
 - Strategy code is executed via importlib with a restricted namespace.
 - No network modules are imported before execution.
 - stdout/stderr are captured; no direct host output.
@@ -136,6 +140,7 @@ def _execute_strategy(
         StrategyFeature,
         TargetHedgePlan,
         validate_plan_not_prohibited,
+        validate_plan_schema,
     )
 
     enabled_features = set()
@@ -143,9 +148,16 @@ def _execute_strategy(
         with contextlib.suppress(ValueError):
             enabled_features.add(StrategyFeature(feat_name))
 
+    def _enabled(feature: StrategyFeature) -> bool:
+        return feature in enabled_features
+
+    # Data-access boundary: only explicitly enabled features are placed in
+    # the context.  Data for disabled features is stripped here so the
+    # strategy can never observe it (fail closed, enforced again by
+    # StrategyContext validation).
     portfolio_data = context_data.get("portfolio")
     portfolio = None
-    if portfolio_data:
+    if portfolio_data and _enabled(StrategyFeature.CURRENT_PORTFOLIO):
         portfolio = PortfolioSnapshot(
             total_value=portfolio_data["total_value"],
             cash=portfolio_data["cash"],
@@ -157,46 +169,62 @@ def _execute_strategy(
         )
 
     positions = []
-    for pos_data in context_data.get("positions", []):
-        from datetime import date as date_type
+    if _enabled(StrategyFeature.EXISTING_HEDGE_POSITIONS):
+        for pos_data in context_data.get("positions", []):
+            from datetime import date as date_type
 
-        positions.append(
-            HedgePositionSnapshot(
-                strike=pos_data["strike"],
-                expiration_date=date_type.fromisoformat(pos_data["expiration_date"]),
-                quantity=pos_data["quantity"],
-                entry_premium=pos_data["entry_premium"],
-                current_dte=pos_data["current_dte"],
+            positions.append(
+                HedgePositionSnapshot(
+                    strike=pos_data["strike"],
+                    expiration_date=date_type.fromisoformat(
+                        pos_data["expiration_date"]
+                    ),
+                    quantity=pos_data["quantity"],
+                    entry_premium=pos_data["entry_premium"],
+                    current_dte=pos_data["current_dte"],
+                )
             )
-        )
 
     option_chain = []
-    for quote_data in context_data.get("option_chain", []):
-        from datetime import date as date_type
+    if _enabled(StrategyFeature.OPTION_CHAIN_QUOTES):
+        for quote_data in context_data.get("option_chain", []):
+            from datetime import date as date_type
 
-        option_chain.append(
-            OptionQuoteSnapshot(
-                trade_date=date_type.fromisoformat(quote_data["trade_date"]),
-                strike=quote_data["strike"],
-                expiration_date=date_type.fromisoformat(quote_data["expiration_date"]),
-                bid=quote_data["bid"],
-                ask=quote_data["ask"],
-                underlying_price=quote_data["underlying_price"],
+            option_chain.append(
+                OptionQuoteSnapshot(
+                    trade_date=date_type.fromisoformat(quote_data["trade_date"]),
+                    strike=quote_data["strike"],
+                    expiration_date=date_type.fromisoformat(
+                        quote_data["expiration_date"]
+                    ),
+                    bid=quote_data["bid"],
+                    ask=quote_data["ask"],
+                    underlying_price=quote_data["underlying_price"],
+                )
             )
-        )
 
     from datetime import date as date_type
 
+    budget_fields: dict[str, float] = {}
+    if _enabled(StrategyFeature.BUDGET_CONSUMPTION):
+        budget_fields = {
+            "budget_consumed_ytd": context_data.get("budget_consumed_ytd", 0.0),
+            "budget_remaining": context_data.get("budget_remaining", 0.0),
+            "budget_cap_pct": context_data.get("budget_cap_pct", 0.0),
+        }
+
+    underlying_close = None
+    if _enabled(StrategyFeature.UNDERLYING_CLOSE):
+        underlying_close = context_data.get("underlying_close")
+
     context = StrategyContext(
         trade_date=date_type.fromisoformat(context_data["trade_date"]),
-        underlying_close=context_data["underlying_close"],
         enabled_features=frozenset(enabled_features),
+        underlying_close=underlying_close,
         portfolio=portfolio,
         positions=tuple(positions),
         option_chain=tuple(option_chain),
-        budget_consumed_ytd=context_data.get("budget_consumed_ytd", 0.0),
-        budget_remaining=context_data.get("budget_remaining", 0.0),
-        budget_cap_pct=context_data.get("budget_cap_pct", 0.0),
+        **budget_fields,
     )
 
     strategy = strategy_class()
@@ -206,6 +234,10 @@ def _execute_strategy(
         raise TypeError(
             f"Strategy must return TargetHedgePlan, got {type(result).__name__}"
         )
+
+    schema_errors = validate_plan_schema(result)
+    if schema_errors:
+        raise ValueError(f"Plan failed schema validation: {'; '.join(schema_errors)}")
 
     plan_dict = {
         "schema_version": result.schema_version,

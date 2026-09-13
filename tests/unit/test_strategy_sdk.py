@@ -56,7 +56,11 @@ def _make_context(
     option_chain: tuple[OptionQuoteSnapshot, ...] = (),
     **kwargs: object,
 ) -> StrategyContext:
-    """Build a StrategyContext with sensible defaults."""
+    """Build a StrategyContext with sensible defaults.
+
+    Data is only included for features that are enabled, mirroring the
+    data-access boundary enforced by the evaluator.
+    """
     if features is None:
         features = set(StrategyFeature)
     if portfolio is None:
@@ -69,11 +73,19 @@ def _make_context(
         )
     return StrategyContext(
         trade_date=TRADE_DATE,
-        underlying_close=4500.0,
         enabled_features=frozenset(features),
-        portfolio=portfolio,
-        positions=positions,
-        option_chain=option_chain,
+        underlying_close=(
+            4500.0 if StrategyFeature.UNDERLYING_CLOSE in features else None
+        ),
+        portfolio=(
+            portfolio if StrategyFeature.CURRENT_PORTFOLIO in features else None
+        ),
+        positions=(
+            positions if StrategyFeature.EXISTING_HEDGE_POSITIONS in features else ()
+        ),
+        option_chain=(
+            option_chain if StrategyFeature.OPTION_CHAIN_QUOTES in features else ()
+        ),
         **kwargs,  # type: ignore[arg-type]
     )
 
@@ -208,6 +220,105 @@ class TestStrategyContextFeatureGating:
     def test_schema_version_is_set(self) -> None:
         ctx = _make_context()
         assert ctx.schema_version == SCHEMA_VERSION
+
+
+# ---------------------------------------------------------------------------
+# T-007.1b: StrategyContext -- feature gating enforced at the boundary
+# ---------------------------------------------------------------------------
+
+
+class TestContextFeatureGatingEnforcement:
+    """Context must contain only explicitly enabled features (fail closed)."""
+
+    def test_portfolio_data_without_feature_rejected(self) -> None:
+        with pytest.raises(ValueError, match="CURRENT_PORTFOLIO"):
+            StrategyContext(
+                trade_date=TRADE_DATE,
+                enabled_features=frozenset(),
+                portfolio=PortfolioSnapshot(
+                    total_value=1.0,
+                    cash=0.0,
+                    units=0.0,
+                    base_currency="USD",
+                ),
+            )
+
+    def test_positions_without_feature_rejected(self) -> None:
+        with pytest.raises(ValueError, match="EXISTING_HEDGE_POSITIONS"):
+            StrategyContext(
+                trade_date=TRADE_DATE,
+                enabled_features=frozenset(),
+                positions=(
+                    HedgePositionSnapshot(
+                        strike=4300.0,
+                        expiration_date=TRADE_DATE + timedelta(days=30),
+                        quantity=1,
+                        entry_premium=50.0,
+                        current_dte=30,
+                    ),
+                ),
+            )
+
+    def test_option_chain_without_feature_rejected(self) -> None:
+        with pytest.raises(ValueError, match="OPTION_CHAIN_QUOTES"):
+            StrategyContext(
+                trade_date=TRADE_DATE,
+                enabled_features=frozenset(),
+                option_chain=(
+                    OptionQuoteSnapshot(
+                        trade_date=TRADE_DATE,
+                        strike=4200.0,
+                        expiration_date=TRADE_DATE + timedelta(days=63),
+                        bid=100.0,
+                        ask=105.0,
+                        underlying_price=4500.0,
+                    ),
+                ),
+            )
+
+    def test_budget_fields_without_feature_rejected(self) -> None:
+        with pytest.raises(ValueError, match="BUDGET_CONSUMPTION"):
+            StrategyContext(
+                trade_date=TRADE_DATE,
+                enabled_features=frozenset(),
+                budget_consumed_ytd=100.0,
+            )
+
+    def test_underlying_close_without_feature_rejected(self) -> None:
+        with pytest.raises(ValueError, match="UNDERLYING_CLOSE"):
+            StrategyContext(
+                trade_date=TRADE_DATE,
+                enabled_features=frozenset(),
+                underlying_close=4500.0,
+            )
+
+    def test_underlying_close_absent_when_disabled(self) -> None:
+        ctx = _make_context(features=set())
+        assert ctx.underlying_close is None
+
+    def test_underlying_close_present_when_enabled(self) -> None:
+        ctx = _make_context(features={StrategyFeature.UNDERLYING_CLOSE})
+        assert ctx.underlying_close == 4500.0
+
+    def test_gated_data_with_feature_enabled_allowed(self) -> None:
+        ctx = _make_context(
+            features={
+                StrategyFeature.CURRENT_PORTFOLIO,
+                StrategyFeature.EXISTING_HEDGE_POSITIONS,
+                StrategyFeature.OPTION_CHAIN_QUOTES,
+                StrategyFeature.BUDGET_CONSUMPTION,
+                StrategyFeature.UNDERLYING_CLOSE,
+            }
+        )
+        assert ctx.portfolio is not None
+        assert ctx.underlying_close == 4500.0
+
+    def test_minimal_context_with_no_features_valid(self) -> None:
+        ctx = StrategyContext(trade_date=TRADE_DATE, enabled_features=frozenset())
+        assert ctx.underlying_close is None
+        assert ctx.portfolio is None
+        assert ctx.positions == ()
+        assert ctx.option_chain == ()
 
 
 # ---------------------------------------------------------------------------

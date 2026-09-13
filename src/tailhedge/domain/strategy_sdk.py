@@ -182,9 +182,6 @@ class StrategyContext:
     trade_date: date
     """Current trade date (decision timestamp)."""
 
-    underlying_close: float
-    """Underlying close price on the trade date."""
-
     schema_version: str = SCHEMA_VERSION
     """SDK schema version."""
 
@@ -192,6 +189,10 @@ class StrategyContext:
     """Features enabled for this context.  Strategy code should only access
     fields corresponding to enabled features; accessing disabled fields is
     a contract violation."""
+
+    underlying_close: float | None = None
+    """Underlying close price on the trade date
+    (requires UNDERLYING_CLOSE feature)."""
 
     portfolio: PortfolioSnapshot | None = None
     """Current portfolio snapshot (requires CURRENT_PORTFOLIO feature)."""
@@ -213,6 +214,52 @@ class StrategyContext:
     budget_cap_pct: float = 0.0
     """Annual budget cap as a fraction of portfolio value
     (requires BUDGET_CONSUMPTION feature)."""
+
+    def __post_init__(self) -> None:
+        """Enforce the allowed feature surface at the data-access boundary.
+
+        A context must contain only explicitly enabled features: data for a
+        disabled feature must be absent.  Constructing a context that carries
+        disabled-feature data fails closed rather than relying on strategy
+        code to behave.
+        """
+        gated: tuple[tuple[StrategyFeature, bool, str], ...] = (
+            (
+                StrategyFeature.UNDERLYING_CLOSE,
+                self.underlying_close is not None,
+                "underlying_close",
+            ),
+            (
+                StrategyFeature.CURRENT_PORTFOLIO,
+                self.portfolio is not None,
+                "portfolio",
+            ),
+            (
+                StrategyFeature.EXISTING_HEDGE_POSITIONS,
+                bool(self.positions),
+                "positions",
+            ),
+            (
+                StrategyFeature.OPTION_CHAIN_QUOTES,
+                bool(self.option_chain),
+                "option_chain",
+            ),
+            (
+                StrategyFeature.BUDGET_CONSUMPTION,
+                self.budget_consumed_ytd != 0.0
+                or self.budget_remaining != 0.0
+                or self.budget_cap_pct != 0.0,
+                "budget fields (budget_consumed_ytd/budget_remaining/budget_cap_pct)",
+            ),
+        )
+        for feature, present, field_name in gated:
+            if present and not self.has_feature(feature):
+                msg = (
+                    f"Field '{field_name}' requires feature '{feature}' "
+                    f"which is not enabled; enabled features: "
+                    f"{sorted(self.enabled_features)}"
+                )
+                raise ValueError(msg)
 
     def has_feature(self, feature: StrategyFeature) -> bool:
         """Check if a feature is enabled in this context."""
@@ -667,9 +714,10 @@ def compute_context_hash(context: StrategyContext) -> str:
     d: dict = {  # type: ignore[type-arg]
         "schema_version": context.schema_version,
         "trade_date": context.trade_date.isoformat(),
-        "underlying_close": context.underlying_close,
         "enabled_features": sorted(f.value for f in context.enabled_features),
     }
+    if context.underlying_close is not None:
+        d["underlying_close"] = context.underlying_close
     if context.portfolio is not None:
         d["portfolio"] = {
             "total_value": context.portfolio.total_value,

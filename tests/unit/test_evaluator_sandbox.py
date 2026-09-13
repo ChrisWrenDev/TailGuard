@@ -562,6 +562,101 @@ class Strategy:
 
 
 # ---------------------------------------------------------------------------
+# Feature-surface boundary tests
+# ---------------------------------------------------------------------------
+
+
+@requires_docker
+class TestFeatureBoundary:
+    """Verify the context exposes only explicitly enabled features."""
+
+    def test_disabled_feature_data_not_exposed(self) -> None:
+        """Data for disabled features must be stripped from the context."""
+        strategy = """
+class Strategy:
+    def decide(self, context):
+        problems = []
+        if context.portfolio is not None:
+            problems.append("portfolio")
+        if context.underlying_close is not None:
+            problems.append("underlying_close")
+        if context.positions:
+            problems.append("positions")
+        if context.option_chain:
+            problems.append("option_chain")
+        if problems:
+            raise RuntimeError(f"Disabled features exposed: {problems}")
+
+        from tailhedge.domain.strategy_sdk import TargetHedgePlan
+        return TargetHedgePlan(trade_date=context.trade_date)
+"""
+        result = evaluate_strategy_source(
+            strategy,
+            _make_context(),
+            wall_timeout_seconds=30,
+        )
+        assert result.success, f"Strategy should succeed: {result.error_message}"
+
+    def test_enabled_feature_data_present(self) -> None:
+        """Data for enabled features must be available to the strategy."""
+        context = _make_context(
+            features=["CURRENT_PORTFOLIO", "UNDERLYING_CLOSE"],
+        )
+        strategy = """
+class Strategy:
+    def decide(self, context):
+        if context.portfolio is None:
+            raise RuntimeError("Enabled portfolio missing")
+        if context.underlying_close is None:
+            raise RuntimeError("Enabled underlying_close missing")
+
+        from tailhedge.domain.strategy_sdk import TargetHedgePlan
+        return TargetHedgePlan(trade_date=context.trade_date)
+"""
+        result = evaluate_strategy_source(
+            strategy,
+            context,
+            wall_timeout_seconds=30,
+        )
+        assert result.success, f"Strategy should succeed: {result.error_message}"
+
+    def test_schema_invalid_plan_rejected(self) -> None:
+        """Plan whose BUY_PUT expires before the trade date must fail."""
+        strategy = """
+from datetime import timedelta
+
+from tailhedge.domain.strategy_sdk import (
+    HedgeAction,
+    TargetHedgePlan,
+    TargetTranche,
+)
+
+
+class Strategy:
+    def decide(self, context):
+        return TargetHedgePlan(
+            trade_date=context.trade_date,
+            tranches=(
+                TargetTranche(
+                    action=HedgeAction.BUY_PUT,
+                    strike=400.0,
+                    expiration_date=context.trade_date - timedelta(days=1),
+                    quantity=1,
+                ),
+            ),
+        )
+"""
+        result = evaluate_strategy_source(
+            strategy,
+            _make_context(),
+            wall_timeout_seconds=30,
+        )
+        assert not result.success
+        assert result.error_type == "ValueError"
+        assert "schema validation" in (result.error_message or "")
+
+
+# ---------------------------------------------------------------------------
 # Valid strategy tests
 # ---------------------------------------------------------------------------
 

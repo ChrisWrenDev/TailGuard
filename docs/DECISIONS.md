@@ -186,3 +186,10 @@
 **Chosen approach:** `calculate_portfolio_exposure` requires an `fx_to_base` mapping whenever any holding's currency differs from the portfolio base currency; missing rates for present currencies raise. Weighted average beta is weighted over *mapped* eligible value only so eligible-but-unmapped holdings cannot dilute it (they remain surfaced as warnings).  
 **Reasoning:** Fail closed on ambiguous financial state; unmapped exposure must be visible, not absorbed into averages.  
 **Consequences:** Callers with multi-currency books must supply explicit FX rates (GF-006-style input).
+
+## ADR-028 — Strategy context exposes only explicitly enabled features, enforced at the boundary
+**Context:** FR-006 and TECHNICAL_ARCHITECTURE.md §8.1 require `StrategyContext` to contain only explicitly enabled features. The initial SDK declared a feature allowlist but did not enforce that disabled-feature data was absent; `underlying_close` was also always populated despite the `UNDERLYING_CLOSE` feature flag.  
+**Chosen approach:** `StrategyContext` construction fails closed if data for a disabled feature is present (portfolio, positions, option chain, budget fields, and now an optional `underlying_close` gated by `UNDERLYING_CLOSE`). The evaluator entrypoint is the data-access boundary: it strips data for disabled features before building the context, and schema-validates the returned `TargetHedgePlan` (in addition to the prohibited-field check) before emitting result JSON.  
+**Alternatives:** Rely on strategy code to call `require_feature` before access — rejected: untrusted code must not be trusted to honour conventions.  
+**Reasoning:** The project prevents leakage at the data-access boundary, not by convention; the trusted builder must be unable to silently over-share.  
+**Consequences:** Campaign feature configuration determines exactly what a candidate sees; misconfigured contexts raise at construction instead of leaking data. `StrategyContext.underlying_close` is now `float | None`.

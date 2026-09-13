@@ -171,7 +171,7 @@ Tasks are ordered for autonomous implementation. Unless marked post-MVP, each ta
 **Order:** 18.
 
 ### TASK-019 — Strategy SDK and target-plan contract
-**Status:** pending  
+**Status:** completed  
 **Description:** Versioned `StrategyContext`/`TargetHedgePlan`, allowed feature surface, schema validation.  
 **Requirements:** FR-006.  
 **Dependencies:** TASK-010, TASK-018.  
